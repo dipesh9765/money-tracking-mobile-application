@@ -1,54 +1,68 @@
-# Money Tracking Mobile Application
+# Expense Interceptor
 
-A personal Android app that intercepts bank SMS messages, extracts transaction amounts, and prompts you to categorize expenses immediately.
+**Intercept bank SMS. Categorize instantly. Never forget a transaction.**
+
+A privacy-first Android app that watches for bank transaction SMS, extracts amounts and merchants, and prompts you to categorize expenses on the spot. No cloud, no account, no internet required—everything stays on your device.
+
+---
 
 ## Features
 
-- **SMS Interception**: Automatically detects bank transaction SMS messages
-- **Quick Categorization**: Tap the notification to categorize expenses in a transparent overlay
-- **Expense Tracking**: View all expenses for the current month
-- **CSV Export**: Export expenses to CSV and share via any app
+- **SMS Interception** — Real-time detection of bank transaction messages from configured sender patterns
+- **Quick Categorization** — Tap the notification to open a transparent overlay and assign a category in seconds
+- **Transactions View** — Scrollable list with date range filtering, swipe-to-delete (with undo), and tap-to-edit category, bank, and transaction type
+- **Dashboard** — Bar, Line, and Pie charts powered by Vico. Filter by category, bank, or DEBIT/CREDIT. Time scales: daily, weekly, monthly
+- **Scan Old SMS** — Backfill past transactions by scanning your inbox for a chosen date range
+- **Export** — Share as CSV, Excel (.xlsx), PDF, or formatted text
+- **Import** — Bring in expenses from CSV or Excel files
+
+---
 
 ## Tech Stack
 
-- **Language**: Kotlin
-- **UI**: Jetpack Compose (Material 3)
-- **Database**: Room Database
-- **Architecture**: MVVM with Hilt (Dependency Injection)
+| Layer | Technology |
+|-------|------------|
+| Language | Kotlin |
+| UI | Jetpack Compose (Material 3) |
+| Database | Room |
+| Architecture | MVVM with Hilt |
+| Excel | Apache POI |
+| Charts | Vico |
 
-## Setup
+---
 
-### 1. Configure SMS Sender IDs
+## Getting Started
 
-Edit `app/src/main/java/com/expenseinterceptor/config/SmsParserConfig.kt` to add your bank's sender IDs:
+### 1. Configure SMS Sender Patterns
+
+Edit `app/src/main/java/com/expenseinterceptor/config/SmsParserConfig.kt` and add your bank's sender patterns. The app uses **partial matching**—only the consistent suffix is needed:
 
 ```kotlin
-val ALLOWED_SENDER_IDS = listOf(
-    "VM-MAHABK",  // Maharashtra Bank
-    "AD-HDFCBK",  // HDFC Bank
-    // Add your bank's sender ID here
+val ALLOWED_SENDER_PATTERNS = listOf(
+    "HASTIB",    // Hasti Bank (CF-HASTIB-S, JM-HASTI-S)
+    "IDFCFB",    // IDFC Bank (CP-IDFCFB-S, VM-IDFCFB-S)
+    "MAHABK",    // Maharashtra Bank
+    "HDFCBK",    // HDFC Bank
+    "SBIUPI",    // SBI UPI
+    // Add your bank's pattern here
 )
 ```
 
-### 2. Customize Amount Regex (if needed)
+### 2. Customize Parsing (Optional)
 
-The default regex handles most Indian bank SMS formats:
-- Rs.1234.56
-- Rs 1,234.56
-- INR 1234
-- ₹1,234.00
+The default `AMOUNT_REGEX` handles formats like `Rs.1234.56`, `INR 1,234`, `₹1,234.00`.  
+`MERCHANT_REGEX` extracts "at/to/for MERCHANT" patterns.  
+`detectTransactionType()` treats "credited"/"cr" as CREDIT, otherwise DEBIT.  
+Adjust these in `SmsParserConfig.kt` if your bank uses different wording.
 
-If your bank uses a different format, update `AMOUNT_REGEX` in `SmsParserConfig.kt`.
+---
 
 ## Building the APK
 
-### Using Android Studio
+**Android Studio:** Build > Build Bundle(s) / APK(s) > Build APK(s)  
+Output: `app/build/outputs/apk/debug/app-debug.apk`
 
-1. Open the project in Android Studio
-2. Click **Build > Build Bundle(s) / APK(s) > Build APK(s)**
-3. Find the APK at `app/build/outputs/apk/debug/app-debug.apk`
-
-### Using Command Line
+**Command line:**
 
 ```bash
 # Windows
@@ -58,72 +72,88 @@ gradlew.bat assembleDebug
 ./gradlew assembleDebug
 ```
 
+---
+
 ## Installing on Your Phone
 
-1. **Enable Unknown Sources**: Go to Settings > Security > Install unknown apps
-2. **Transfer APK**: Copy `app-debug.apk` to your phone
-3. **Install**: Tap the APK file to install
-4. **Grant Permissions**: When prompted, grant SMS and notification permissions
+1. Enable **Install unknown apps** for your file manager or browser
+2. Copy `app-debug.apk` to your phone and install
+3. Grant **SMS** and **Notification** permissions when prompted
 
-## Permissions Required
+---
+
+## Permissions
 
 | Permission | Purpose |
 |------------|---------|
 | `RECEIVE_SMS` | Detect incoming bank transaction messages |
-| `READ_SMS` | Read SMS content to extract amount |
-| `POST_NOTIFICATIONS` | Show notification when expense is detected |
+| `READ_SMS` | Read SMS content and scan old messages |
+| `POST_NOTIFICATIONS` | Show notification when an expense is detected |
+
+---
 
 ## Privacy
 
-- **100% Offline**: All data stays on your device
-- **No Internet**: The app doesn't require internet access
-- **No Analytics**: No tracking or telemetry
-- **Local Storage**: Expenses stored in local Room database
+- **100% Offline** — All data stays on your device
+- **No Internet** — The app does not require network access
+- **No Analytics** — No tracking or telemetry
+- **Local Storage** — Expenses stored in a local Room database
+
+---
 
 ## Categories
 
-Default expense categories:
-- Food
-- Travel
-- Bills
-- Shopping
-- Entertainment
-- Health
-- Other
+Default expense categories: Food, Travel, Bills, Shopping, Entertainment, Health, Other
+
+---
 
 ## Project Structure
 
 ```
 app/src/main/java/com/expenseinterceptor/
 ├── config/
-│   └── SmsParserConfig.kt      # SMS filtering and regex patterns
+│   └── SmsParserConfig.kt       # Sender patterns, amount/merchant regex
 ├── data/
 │   ├── local/
-│   │   ├── ExpenseEntity.kt    # Room entity
-│   │   ├── ExpenseDao.kt       # Database queries
-│   │   └── ExpenseDatabase.kt  # Room database
+│   │   ├── ExpenseEntity.kt     # Room entity (amount, merchant, category, bank, DEBIT/CREDIT)
+│   │   ├── ExpenseDao.kt
+│   │   └── ExpenseDatabase.kt
 │   └── repository/
 │       └── ExpenseRepository.kt
 ├── di/
-│   └── AppModule.kt            # Hilt dependency injection
+│   └── AppModule.kt
 ├── receiver/
-│   └── SmsReceiver.kt          # BroadcastReceiver for SMS
+│   └── SmsReceiver.kt           # BroadcastReceiver for SMS
 ├── ui/
 │   ├── main/
 │   │   ├── MainActivity.kt
-│   │   ├── MainScreen.kt
-│   │   └── MainViewModel.kt
+│   │   ├── MainScreen.kt        # Transactions + Dashboard (bottom nav)
+│   │   ├── MainViewModel.kt
+│   │   └── DashboardScreen.kt   # Charts, filters, category breakdown
 │   ├── quickadd/
 │   │   ├── QuickAddActivity.kt
 │   │   ├── QuickAddScreen.kt
 │   │   └── QuickAddViewModel.kt
+│   ├── scan/
+│   │   ├── ScanSmsScreen.kt      # Scan old SMS by date range
+│   │   └── ScanViewModel.kt
+│   ├── debug/
+│   │   └── DebugLogScreen.kt    # SMS debug logs (optional)
 │   └── theme/
 │       └── Theme.kt, Color.kt, Type.kt
 ├── util/
-│   ├── CsvExporter.kt          # CSV export functionality
-│   └── NotificationHelper.kt   # Notification creation
-└── ExpenseInterceptorApp.kt    # Application class
+│   ├── CsvExporter.kt
+│   ├── CsvImporter.kt
+│   ├── ExcelExporter.kt
+│   ├── ExcelImporter.kt
+│   ├── PdfExporter.kt
+│   ├── SmsScanner.kt            # Scan inbox for past transactions
+│   ├── SmsDebugLogger.kt
+│   └── NotificationHelper.kt
+└── ExpenseInterceptorApp.kt
 ```
+
+---
 
 ## License
 
