@@ -2,12 +2,15 @@ package com.expenseinterceptor.ui.main
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.expenseinterceptor.data.local.ExpenseEntity
 import com.expenseinterceptor.data.repository.ExpenseRepository
 import com.expenseinterceptor.util.CsvExporter
+import com.expenseinterceptor.util.CsvImporter
 import com.expenseinterceptor.util.ExcelExporter
+import com.expenseinterceptor.util.ExcelImporter
 import com.expenseinterceptor.util.PdfExporter
 import com.expenseinterceptor.ui.quickadd.ExpenseCategory
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,12 +19,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 
@@ -35,7 +41,10 @@ data class MainUiState(
     val isPreparingShare: Boolean = false,
     val shareError: String? = null,
     val shareIntent: Intent? = null,
-    val infoMessage: String? = null
+    val infoMessage: String? = null,
+    val deletedForUndo: ExpenseEntity? = null,
+    val isImporting: Boolean = false,
+    val importMessage: String? = null
 )
 
 data class EditExpenseState(
@@ -53,6 +62,44 @@ enum class ShareFormat {
     EXCEL,
     PDF
 }
+
+enum class DashboardSortBy {
+    DATE_DESC,
+    DATE_ASC,
+    AMOUNT_DESC,
+    AMOUNT_ASC,
+    CATEGORY,
+    MERCHANT
+}
+
+enum class DashboardTimeScale {
+    DAILY,
+    WEEKLY,
+    MONTHLY
+}
+
+data class DashboardState(
+    val selectedCategories: Set<String> = emptySet(),
+    val selectedBanks: Set<String> = emptySet(),
+    val transactionTypeFilter: String = "ALL",
+    val sortBy: DashboardSortBy = DashboardSortBy.DATE_DESC,
+    val timeScale: DashboardTimeScale = DashboardTimeScale.DAILY,
+    val minAmount: Double? = null,
+    val maxAmount: Double? = null,
+    val highlightedCategories: Set<String> = emptySet()
+)
+
+data class CategoryBreakdown(
+    val category: String,
+    val amount: Double,
+    val percentage: Float
+)
+
+data class TimeSeriesPoint(
+    val label: String,
+    val timestamp: Long,
+    val amount: Double
+)
 
 /**
  * ViewModel for the main expense list screen.
@@ -100,6 +147,217 @@ class MainViewModel @Inject constructor(
 
     private val _editState = MutableStateFlow<EditExpenseState?>(null)
     val editState: StateFlow<EditExpenseState?> = _editState.asStateFlow()
+
+    private val _dashboardState = MutableStateFlow(DashboardState())
+    val dashboardState: StateFlow<DashboardState> = _dashboardState.asStateFlow()
+
+    /**
+     * Filtered and sorted expenses for the dashboard.
+     */
+    val dashboardExpenses: StateFlow<List<ExpenseEntity>> = combine(
+        expenses,
+        _dashboardState
+    ) { expenseList, dashState ->
+        applyDashboardFilters(expenseList, dashState)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    /**
+     * Total amount for filtered dashboard expenses (debits positive, credits negative for net).
+     */
+    val dashboardTotalAmount: StateFlow<Double> = dashboardExpenses.map { list ->
+        list.sumOf { e ->
+            if (e.transactionType.equals("CREDIT", ignoreCase = true)) -e.amount else e.amount
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0.0
+    )
+
+    /**
+     * Category breakdown for pie chart (debit expenses only for spending view).
+     */
+    val categoryBreakdown: StateFlow<List<CategoryBreakdown>> = dashboardExpenses.map { list ->
+        val debits = list.filter { !it.transactionType.equals("CREDIT", ignoreCase = true) }
+        val total = debits.sumOf { it.amount }
+        if (total <= 0) return@map emptyList<CategoryBreakdown>()
+        debits.groupBy { it.category }
+            .map { (cat, items) ->
+                val amt = items.sumOf { it.amount }
+                CategoryBreakdown(cat, amt, (amt / total * 100).toFloat())
+            }
+            .sortedByDescending { it.amount }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    /**
+     * Time series data for bar/line chart.
+     */
+    val timeSeriesData: StateFlow<List<TimeSeriesPoint>> = combine(
+        dashboardExpenses,
+        _dashboardState,
+        _dateRange
+    ) { list, dashState, (start, end) ->
+        buildTimeSeries(list, dashState.timeScale, start, end)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    /**
+     * Unique banks in current expense data.
+     */
+    val availableBanks: StateFlow<Set<String>> = expenses.map { list ->
+        list.map { it.bank }.toSet()
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptySet()
+    )
+
+    fun setDashboardCategories(selected: Set<String>) {
+        _dashboardState.update { it.copy(selectedCategories = selected) }
+    }
+
+    fun setDashboardBanks(selected: Set<String>) {
+        _dashboardState.update { it.copy(selectedBanks = selected) }
+    }
+
+    fun setDashboardTransactionType(type: String) {
+        _dashboardState.update { it.copy(transactionTypeFilter = type) }
+    }
+
+    fun setDashboardSortBy(sortBy: DashboardSortBy) {
+        _dashboardState.update { it.copy(sortBy = sortBy) }
+    }
+
+    fun setDashboardTimeScale(scale: DashboardTimeScale) {
+        _dashboardState.update { it.copy(timeScale = scale) }
+    }
+
+    fun setDashboardAmountRange(min: Double?, max: Double?) {
+        _dashboardState.update { it.copy(minAmount = min, maxAmount = max) }
+    }
+
+    fun setDashboardHighlightedCategories(categories: Set<String>) {
+        _dashboardState.update { it.copy(highlightedCategories = categories) }
+    }
+
+    fun toggleDashboardCategory(category: String) {
+        _dashboardState.update { state ->
+            val next = if (category in state.selectedCategories) {
+                state.selectedCategories - category
+            } else {
+                state.selectedCategories + category
+            }
+            state.copy(selectedCategories = next)
+        }
+    }
+
+    fun toggleDashboardBank(bank: String) {
+        _dashboardState.update { state ->
+            val next = if (bank in state.selectedBanks) {
+                state.selectedBanks - bank
+            } else {
+                state.selectedBanks + bank
+            }
+            state.copy(selectedBanks = next)
+        }
+    }
+
+    fun toggleDashboardHighlight(category: String) {
+        _dashboardState.update { state ->
+            val next = if (category in state.highlightedCategories) {
+                state.highlightedCategories - category
+            } else {
+                state.highlightedCategories + category
+            }
+            state.copy(highlightedCategories = next)
+        }
+    }
+
+    private fun applyDashboardFilters(
+        list: List<ExpenseEntity>,
+        state: DashboardState
+    ): List<ExpenseEntity> {
+        var result = list
+        if (state.selectedCategories.isNotEmpty()) {
+            result = result.filter { it.category in state.selectedCategories }
+        }
+        if (state.selectedBanks.isNotEmpty()) {
+            result = result.filter { it.bank in state.selectedBanks }
+        }
+        when (state.transactionTypeFilter.uppercase()) {
+            "DEBIT" -> result = result.filter { !it.transactionType.equals("CREDIT", ignoreCase = true) }
+            "CREDIT" -> result = result.filter { it.transactionType.equals("CREDIT", ignoreCase = true) }
+        }
+        state.minAmount?.let { min -> result = result.filter { it.amount >= min } }
+        state.maxAmount?.let { max -> result = result.filter { it.amount <= max } }
+        result = when (state.sortBy) {
+            DashboardSortBy.DATE_DESC -> result.sortedByDescending { it.timestamp }
+            DashboardSortBy.DATE_ASC -> result.sortedBy { it.timestamp }
+            DashboardSortBy.AMOUNT_DESC -> result.sortedByDescending { it.amount }
+            DashboardSortBy.AMOUNT_ASC -> result.sortedBy { it.amount }
+            DashboardSortBy.CATEGORY -> result.sortedBy { it.category }
+            DashboardSortBy.MERCHANT -> result.sortedBy { it.merchant }
+        }
+        return result
+    }
+
+    private fun buildTimeSeries(
+        list: List<ExpenseEntity>,
+        scale: DashboardTimeScale,
+        startMillis: Long,
+        endMillis: Long
+    ): List<TimeSeriesPoint> {
+        val debits = list.filter { !it.transactionType.equals("CREDIT", ignoreCase = true) }
+        if (debits.isEmpty()) return emptyList()
+        val formatter = SimpleDateFormat(when (scale) {
+            DashboardTimeScale.DAILY -> "dd MMM"
+            DashboardTimeScale.WEEKLY -> "'W'w"
+            DashboardTimeScale.MONTHLY -> "MMM yyyy"
+        }, Locale.getDefault())
+        val cal = Calendar.getInstance()
+        val grouped = debits.groupBy { e ->
+            cal.timeInMillis = e.timestamp
+            when (scale) {
+                DashboardTimeScale.DAILY -> {
+                    cal.set(Calendar.HOUR_OF_DAY, 0)
+                    cal.set(Calendar.MINUTE, 0)
+                    cal.set(Calendar.SECOND, 0)
+                    cal.set(Calendar.MILLISECOND, 0)
+                    cal.timeInMillis
+                }
+                DashboardTimeScale.WEEKLY -> {
+                    cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
+                    cal.set(Calendar.HOUR_OF_DAY, 0)
+                    cal.set(Calendar.MINUTE, 0)
+                    cal.set(Calendar.SECOND, 0)
+                    cal.set(Calendar.MILLISECOND, 0)
+                    cal.timeInMillis
+                }
+                DashboardTimeScale.MONTHLY -> {
+                    cal.set(Calendar.DAY_OF_MONTH, 1)
+                    cal.set(Calendar.HOUR_OF_DAY, 0)
+                    cal.set(Calendar.MINUTE, 0)
+                    cal.set(Calendar.SECOND, 0)
+                    cal.set(Calendar.MILLISECOND, 0)
+                    cal.timeInMillis
+                }
+            }
+        }
+        return grouped.map { (ts, items) ->
+            TimeSeriesPoint(formatter.format(Date(ts)), ts, items.sumOf { it.amount })
+        }.sortedBy { it.timestamp }
+    }
 
     /**
      * Returns the current range label for display.
@@ -186,12 +444,31 @@ class MainViewModel @Inject constructor(
     }
 
     /**
-     * Deletes an expense from the database.
+     * Deletes an expense from the database and stores it for undo.
      */
     fun deleteExpense(expense: ExpenseEntity) {
         viewModelScope.launch {
+            _uiState.update { it.copy(deletedForUndo = expense) }
             repository.deleteExpense(expense.id)
         }
+    }
+
+    /**
+     * Restores the last deleted expense (called when user taps Undo).
+     */
+    fun restoreDeletedExpense() {
+        val expense = _uiState.value.deletedForUndo ?: return
+        viewModelScope.launch {
+            repository.insertExpense(expense.copy(id = 0))
+            _uiState.update { it.copy(deletedForUndo = null, infoMessage = "Transaction restored") }
+        }
+    }
+
+    /**
+     * Clears the pending undo state (called when snackbar is dismissed without Undo).
+     */
+    fun clearDeletedForUndo() {
+        _uiState.update { it.copy(deletedForUndo = null) }
     }
 
     /**
@@ -297,6 +574,83 @@ class MainViewModel @Inject constructor(
      */
     fun clearInfoMessage() {
         _uiState.update { it.copy(infoMessage = null) }
+    }
+
+    /**
+     * Imports expenses from a CSV or Excel file at the given URI.
+     */
+    fun importFromUri(uri: Uri) {
+        _uiState.update { it.copy(isImporting = true, importMessage = null) }
+
+        viewModelScope.launch {
+            try {
+                val mimeType = context.contentResolver.getType(uri) ?: ""
+                val uriString = uri.toString().lowercase()
+                val isExcel = mimeType.contains("spreadsheet") ||
+                    mimeType.contains("excel") ||
+                    uriString.endsWith(".xlsx") ||
+                    uriString.contains(".xlsx")
+
+                val result = if (isExcel) {
+                    ExcelImporter.importFromExcel(context, uri)
+                } else {
+                    CsvImporter.importFromCsv(context, uri)
+                }
+
+                result.fold(
+                    onSuccess = { importResult ->
+                        when {
+                            importResult.expenses.isEmpty() -> {
+                                val errorMsg = importResult.parseErrors.firstOrNull()
+                                    ?: "No transactions to import"
+                                _uiState.update {
+                                    it.copy(
+                                        isImporting = false,
+                                        importMessage = errorMsg
+                                    )
+                                }
+                            }
+                            else -> {
+                                repository.insertExpenses(importResult.expenses)
+                                val successMsg = if (importResult.parseErrors.isEmpty()) {
+                                    "Imported ${importResult.expenses.size} transactions"
+                                } else {
+                                    "Imported ${importResult.expenses.size} transactions. ${importResult.parseErrors.size} rows had errors."
+                                }
+                                _uiState.update {
+                                    it.copy(
+                                        isImporting = false,
+                                        importMessage = successMsg
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onFailure = { e ->
+                        _uiState.update {
+                            it.copy(
+                                isImporting = false,
+                                importMessage = "Import failed: ${e.message}"
+                            )
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isImporting = false,
+                        importMessage = "Import failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Clears the import message after it has been shown.
+     */
+    fun clearImportMessage() {
+        _uiState.update { it.copy(importMessage = null) }
     }
 
     private fun buildTextShareIntent(

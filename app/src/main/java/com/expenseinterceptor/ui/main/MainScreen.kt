@@ -1,6 +1,8 @@
 package com.expenseinterceptor.ui.main
 
 import android.app.DatePickerDialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -22,8 +24,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -40,11 +45,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Button
@@ -88,6 +97,11 @@ private enum class MainSubScreen {
     SCAN
 }
 
+private enum class MainViewMode {
+    TRANSACTIONS,
+    DASHBOARD
+}
+
 /**
  * Formats a double as Indian Rupee currency.
  */
@@ -121,6 +135,7 @@ fun MainScreen(
     onShare: (android.content.Intent) -> Unit
 ) {
     var currentScreen by remember { mutableStateOf(MainSubScreen.HOME) }
+    var viewMode by remember { mutableStateOf(MainViewMode.TRANSACTIONS) }
     val scanViewModel: ScanViewModel = hiltViewModel()
 
     val expenses by viewModel.expenses.collectAsState()
@@ -133,6 +148,12 @@ fun MainScreen(
     var showShareOptions by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showOverflow by remember { mutableStateOf(false) }
+
+    val importFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { viewModel.importFromUri(it) }
+    }
 
     when (currentScreen) {
         MainSubScreen.SCAN -> {
@@ -154,6 +175,27 @@ fun MainScreen(
                 uiState.infoMessage?.let {
                     snackbarHostState.showSnackbar(it)
                     viewModel.clearInfoMessage()
+                }
+            }
+
+            LaunchedEffect(uiState.deletedForUndo) {
+                uiState.deletedForUndo?.let {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Transaction deleted",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short
+                    )
+                    when (result) {
+                        SnackbarResult.ActionPerformed -> viewModel.restoreDeletedExpense()
+                        SnackbarResult.Dismissed -> viewModel.clearDeletedForUndo()
+                    }
+                }
+            }
+
+            LaunchedEffect(uiState.importMessage) {
+                uiState.importMessage?.let { message ->
+                    snackbarHostState.showSnackbar(message)
+                    viewModel.clearImportMessage()
                 }
             }
 
@@ -188,6 +230,19 @@ fun MainScreen(
                                     onDismissRequest = { showOverflow = false }
                                 ) {
                                     DropdownMenuItem(
+                                        text = { Text("Import") },
+                                        onClick = {
+                                            showOverflow = false
+                                            importFileLauncher.launch("*/*")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.FileUpload,
+                                                contentDescription = null
+                                            )
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Scan Old SMS") },
                                         onClick = {
                                             showOverflow = false
@@ -211,76 +266,64 @@ fun MainScreen(
                     )
                 },
                 floatingActionButton = {
-                    FloatingActionButton(
-                        onClick = { showShareOptions = true },
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ) {
-                        if (uiState.isPreparingShare) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Export Excel"
-                            )
+                    if (viewMode == MainViewMode.TRANSACTIONS) {
+                        FloatingActionButton(
+                            onClick = { showShareOptions = true },
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            if (uiState.isPreparingShare) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Export Excel"
+                                )
+                            }
                         }
+                    }
+                },
+                bottomBar = {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = viewMode == MainViewMode.TRANSACTIONS,
+                            onClick = { viewMode = MainViewMode.TRANSACTIONS },
+                            icon = { Icon(Icons.Default.List, contentDescription = "Transactions") },
+                            label = { Text("Transactions") }
+                        )
+                        NavigationBarItem(
+                            selected = viewMode == MainViewMode.DASHBOARD,
+                            onClick = { viewMode = MainViewMode.DASHBOARD },
+                            icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
+                            label = { Text("Dashboard") }
+                        )
                     }
                 },
                 snackbarHost = { SnackbarHost(snackbarHostState) }
             ) { paddingValues ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                ) {
-                    // Summary Card
-                    SummaryCard(
+                when (viewMode) {
+                    MainViewMode.TRANSACTIONS -> TransactionsContent(
+                        modifier = Modifier.padding(paddingValues),
+                        expenses = expenses,
                         totalAmount = totalAmount,
-                        expenseCount = expenses.size,
-                        rangeLabel = uiState.dateRangeLabel,
+                        uiState = uiState,
+                        viewModel = viewModel
+                    )
+                    MainViewMode.DASHBOARD -> Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-
-                    DateRangeSelector(
-                        startDateMillis = uiState.startDateMillis,
-                        endDateMillis = uiState.endDateMillis,
-                        onStartDateChange = viewModel::updateStartDate,
-                        onEndDateChange = viewModel::updateEndDate
-                    )
-
-                    // Expense List
-                    if (expenses.isEmpty()) {
-                        EmptyState(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(32.dp)
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                    ) {
+                        DashboardContent(
+                            viewModel = viewModel,
+                            startDateMillis = uiState.startDateMillis,
+                            endDateMillis = uiState.endDateMillis,
+                            onStartDateChange = viewModel::updateStartDate,
+                            onEndDateChange = viewModel::updateEndDate
                         )
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
-                                top = 8.dp,
-                                bottom = 88.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(
-                                items = expenses,
-                                key = { it.id }
-                            ) { expense ->
-                                ExpenseItem(
-                                    expense = expense,
-                                    onDelete = { viewModel.deleteExpense(expense) },
-                                    onClick = { viewModel.startEditing(expense) }
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -314,6 +357,68 @@ fun MainScreen(
                     },
                     onDismiss = { showDeleteConfirm = false }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Transactions view: summary card, date range, and expense list.
+ */
+@Composable
+private fun TransactionsContent(
+    modifier: Modifier = Modifier,
+    expenses: List<ExpenseEntity>,
+    totalAmount: Double,
+    uiState: MainUiState,
+    viewModel: MainViewModel
+) {
+    Column(
+        modifier = modifier.fillMaxSize()
+    ) {
+        SummaryCard(
+            totalAmount = totalAmount,
+            expenseCount = expenses.size,
+            rangeLabel = uiState.dateRangeLabel,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+
+        DateRangeSelector(
+            startDateMillis = uiState.startDateMillis,
+            endDateMillis = uiState.endDateMillis,
+            onStartDateChange = viewModel::updateStartDate,
+            onEndDateChange = viewModel::updateEndDate
+        )
+
+        if (expenses.isEmpty()) {
+            EmptyState(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp)
+            )
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 8.dp,
+                    bottom = 88.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(
+                    items = expenses,
+                    key = { it.id },
+                    contentType = { "expense" }
+                ) { expense ->
+                    ExpenseItem(
+                        expense = expense,
+                        onDelete = { viewModel.deleteExpense(expense) },
+                        onClick = { viewModel.startEditing(expense) }
+                    )
+                }
             }
         }
     }
@@ -392,7 +497,8 @@ private fun ExpenseItem(
             } else {
                 false
             }
-        }
+        },
+        positionalThreshold = { totalDistance -> totalDistance * 0.5f }
     )
 
     SwipeToDismissBox(
@@ -805,4 +911,3 @@ private fun toEndOfDay(millis: Long): Long {
     cal.set(Calendar.MILLISECOND, 999)
     return cal.timeInMillis + 1 // exclusive upper bound for Room queries
 }
-

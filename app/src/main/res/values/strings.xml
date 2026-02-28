@@ -31,6 +31,11 @@
     <string name="no_expenses">No expenses yet</string>
     <string name="export_csv">Export CSV</string>
     <string name="csv_exported">CSV exported successfully</string>
+    <string name="import_expenses">Import</string>
+    <string name="import_success">Imported %d transactions</string>
+    <string name="import_partial">Imported %1$d transactions. %2$d rows had errors.</string>
+    <string name="import_failed">Import failed</string>
+    <string name="import_no_file">No file selected</string>
     
     <!-- Permissions -->
     <string name="permission_rationale_sms">SMS permission is required to detect bank transactions automatically.</string>

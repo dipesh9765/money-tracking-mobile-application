@@ -21,6 +21,13 @@ interface ExpenseDao {
     suspend fun insert(expense: ExpenseEntity): Long
 
     /**
+     * Inserts multiple expenses into the database.
+     * Useful for bulk import.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(expenses: List<ExpenseEntity>): List<Long>
+
+    /**
      * Gets all expenses ordered by timestamp (newest first).
      * Returns a Flow for reactive updates.
      */

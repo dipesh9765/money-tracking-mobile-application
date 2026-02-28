@@ -25,6 +25,15 @@ class ExpenseRepository @Inject constructor(
     }
 
     /**
+     * Inserts multiple expenses. Useful for bulk import.
+     */
+    suspend fun insertExpenses(expenses: List<ExpenseEntity>) {
+        if (expenses.isNotEmpty()) {
+            expenseDao.insertAll(expenses)
+        }
+    }
+
+    /**
      * Gets all expenses as a reactive Flow.
      */
     fun getAllExpenses(): Flow<List<ExpenseEntity>> {
