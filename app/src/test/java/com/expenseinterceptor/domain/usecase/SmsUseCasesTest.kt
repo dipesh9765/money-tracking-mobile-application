@@ -82,7 +82,8 @@ class SmsUseCasesTest {
       (outcomes[creditSms] as ScanOutcome.Detected).transaction.type,
     )
     assertEquals(ScanOutcome.Skipped(IgnoreReason.NOT_A_TRANSACTION), outcomes[otpSms])
-    assertEquals(ScanOutcome.Skipped(IgnoreReason.SENDER_NOT_ALLOWED), outcomes[strangerSms])
+    assertEquals("messages from other senders never appear", null, outcomes[strangerSms])
+    assertEquals(3, items.size)
   }
 
   @Test

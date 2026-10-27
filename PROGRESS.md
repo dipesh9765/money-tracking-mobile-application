@@ -1,55 +1,72 @@
 # Progress log
 
-Branch: `overhaul/v1` (nothing pushed). Baseline: `assembleDebug` OK (AGP 9.0.1, Gradle 9.2.1, Kotlin 2.2.10), **zero tests**, no CI, no lint/format config, minify off, Room schema not exported.
+Branch: `overhaul/v1` (nothing pushed), tag `v1.1.0`.
 
-## Audit (what an interviewer would find)
+Baseline at the start: `assembleDebug` OK (AGP 9.0.1, Gradle 9.2.1, Kotlin 2.2.10), **zero tests**, no CI, no lint or format config, minification off, Room schema not exported, 5,350 lines of main Kotlin.
 
-### Correctness bugs (each gets a failing test first)
-| # | Finding | Evidence |
-|---|---------|----------|
-| 1 | `AMOUNT_REGEX` truncates plain amounts: `Rs.1234.56` parses as `123` (first alternative `\d{1,3}` wins). The README advertises this exact format. Indian lakh grouping (`1,23,456`) is also mis-parsed. | `SmsParserConfig.kt` |
-| 2 | A UPI debit SMS usually says "debited ... credited to MERCHANT"; `detectTransactionType` treats any "credited" as CREDIT, so most UPI debits are recorded as income. | `detectTransactionType` |
-| 3 | Non-transaction SMS (OTP, "Avl Bal Rs 5,000", offers) are turned into expense notifications because any `Rs <n>` is accepted and the first amount (often the balance) is used. | `extractAmount` |
-| 4 | Re-scanning the inbox, or importing the same file twice, inserts duplicates (autogenerate id + REPLACE, no natural key). | `ScanViewModel.saveDetected`, `ExpenseDao` |
-| 5 | CSV/Excel export drops `bank` and `transactionType`; import hardcodes `DEBIT`. Export then import turns every credit into a debit. | `CsvExporter`, `CsvImporter` |
-| 6 | CSV import reads line by line, but the exporter quotes embedded newlines, so a multi-line field corrupts the file. | `CsvImporter.parseCsv` |
-| 7 | `SimpleDateFormat` instances shared in `object`s (not thread safe); timestamps use the default zone implicitly. | importers |
-| 8 | Notification id `BASE + currentTimeMillis().toInt() % 1000` can be negative / collide, so two SMS in a second overwrite each other. | `NotificationHelper` |
-| 9 | Scan saves rows with category "Uncategorized", which is not in the category enum, so the edit dialog shows "Other" and the dashboard shows a phantom category. | `SmsScanner.toExpenseEntity` |
-| 10 | Month ranges are computed in three separate copies, with `Calendar` and the default zone, and the scan range uses an inclusive end while the list uses an exclusive one. | `ExpenseRepository`, `MainViewModel`, `ScanViewModel` |
+## What the audit found (and what happened to each item)
 
-### Security / privacy (the app's selling point is "private")
-- `allowBackup="true"` copies the expense database, including raw bank SMS bodies, to Google cloud backup. That contradicts the README.
-- SMS text, amounts and merchants are written to logcat (`Log.d`) in the receiver, in release builds too.
-- Notification content (amount + merchant) is shown on the lock screen.
-- Exported CSV/Excel cells are not neutralised: the merchant comes from an arbitrary SMS sender, so `=HYPERLINK(...)` in an SMS becomes a formula in the user's spreadsheet (CSV injection).
-- `XSSFWorkbook` opens an untrusted file picked by the user with no size cap.
-- Money stored as `Double`.
-- Release build: no minification, no shrinking.
+### Correctness bugs. Evidence is a real run of the original code, then a regression test.
 
-### Architecture
-- `MainViewModel` 723 lines does list, edit, dashboard maths, export, import and Android `Context` work. `MainScreen` is 912 lines. `DashboardScreen` 537.
-- Business logic (`SmsParserConfig`, `SmsScanner`, `NotificationHelper`, `CsvImporter` ...) is in `object` singletons that touch `Context` and `Log` directly, so none of it can be unit tested or faked.
-- Bank sender list is a Kotlin constant: users must edit source and rebuild to use another bank. README admits it.
-- `ExpenseRepository` is a concrete class with no interface; a manual `@Provides` duplicates `@Inject`.
-- Stringly-typed `transactionType` ("CREDIT"/"DEBIT") and category.
-- `exportSchema = false`, so migrations cannot be tested. Room 2.7.0 and Compose BOM 2024.09 are out of date.
-- README says "MVVM with Hilt" and "No Internet" but nothing enforces it (no CI, no tests).
+| # | Finding | Evidence from the original code | Fix |
+|---|---------|----------------------------------|-----|
+| 1 | Plain amounts truncated: `Rs.1234.56` parsed as **123.0**; lakh grouping `Rs 1,23,456.00` parsed as **1.0** | characterization run of `SmsParserConfig` | New amount regex + `Money.parse`; `SmsParserTest` |
+| 2 | UPI debit that says "credited to SWIGGY" classified **CREDIT** | same run | earliest direction keyword wins; "credit card" ignored |
+| 3 | Balance taken as the amount: "Avl Bal Rs 5,000. Rs 200 debited" gave **5000.0**; an OTP message gave 500.0 | same run | balance/limit lead-in filter; OTP filter |
+| 4 | Bank for `CF-HASTIB-S` recorded as **`S`** | same run | bank = stable middle of the sender id |
+| 5 | Rescan or re-import duplicates every row | code reading (autogenerate id + REPLACE) | unique `dedupeKey` + content check; `RoomTest`, `SmsUseCasesTest`, `ExpenseTransferTest` |
+| 6 | Export dropped bank and direction; import forced DEBIT | code reading | 8-column format, 6-column files still import; round-trip tests |
+| 7 | Multi-line CSV fields broke import; Excel rows after a gap skipped | code reading (`readLine`, `physicalNumberOfRows`) | RFC 4180 reader; `lastRowNum`; tests |
+| 8 | "Total spent" summed credits (SQL `SUM(amount)` over all rows) | code reading | `ExpenseSummary` separates spent and received |
+| 9 | Long SMS parsed per PDU part | code reading | parts joined per sender; receiver test with two real PDUs |
+| 10 | Notification id `currentTimeMillis().toInt() % 1000` could collide or go negative | code reading | id derived from the message fingerprint; tests for replace and no-overwrite |
+| 11 | Second notification while the dialog was open kept the first transaction (`singleInstance`, no `onNewIntent`) | code reading | `onNewIntent` handling; view model test |
+| 12 | Month ranges computed three times with `Calendar` and the default zone, one with an inclusive end | code reading | `DateRanges(clock, zone)`; DST, leap-year and zone tests |
 
-## Plan (small commits, build and tests green at every step)
+### Found while writing the new tests
+- QuickAdd's amount filter accepted 13-digit numbers (`\d{0,12}\.?\d{0,2}` also matches 13 digits with no dot). Fixed with `(\.\d{0,2})?`.
+- After "Save new" the scan screen cleared its own "Saved N" message by rescanning. Fixed.
+- The first receiver rewrite crashed at runtime (Hilt injection skipped). Replaced by an entry point and covered by a test that drives the real receiver.
+- The scan preview listed SMS from senders the user never configured (personal conversations). They are now dropped before reaching the UI.
 
-- **A. Build and CI.** Pin versions, add Spotless (ktfmt), detekt, Android Lint, Kover with a gate, R8 minify, Room schema export, test dependencies, CI and a tag-triggered release workflow.
-- **B. Domain extraction.** Pure `SmsParser` (fixes 1-3), `Money` as integer paise, `TransactionType` enum, domain `Expense`, repository interface, `DateRanges` with an injected `Clock`/`ZoneId` (fix 10), use cases for recording SMS transactions with a dedupe key (fix 4), dashboard maths moved out of the ViewModel. Split `MainViewModel` into Transactions / Dashboard / Transfer (import-export) ViewModels. Replace singletons by injected interfaces (`SmsInbox`, `ExpenseNotifier`).
-- **C. Security and privacy.** `allowBackup=false` plus data extraction rules, no content in logs, redacted in-memory debug log, private lock-screen notification, spreadsheet formula guard, bounded import, Room migration 2→3 (integer paise, unique dedupe key, indexes) with a migration test.
-- **D. Feature completion.** In-app editable sender list (no source edits), lossless CSV/Excel round trip including bank and type, safe multi-line CSV parsing, dedupe on import and rescan.
-- **E. Tests.** Table-driven parser tests on realistic SMS formats, Money, date ranges, use cases, ViewModels (Turbine), exporter/importer round trips, Room DAO + migration (Robolectric), receiver test, Hilt smoke test.
-- **F. Docs.** README rewrite with Mermaid architecture and honest limits, ARCHITECTURE.md, ADRs (integer money, no SQLCipher, SMS permission and Play policy, dedupe key), SECURITY, PRIVACY, CONTRIBUTING, CHANGELOG, LICENSE; resume bullets.
+### Security and privacy
+- `allowBackup=true` uploaded raw bank SMS to cloud backup → disabled, plus extraction rules.
+- SMS text, amounts and merchants in logcat → removed; test forbids `Log.d/v/i`, `println`, `printStackTrace`.
+- Lock-screen notification showed amount and merchant → private visibility with a generic public version.
+- CSV formula injection from SMS merchants → guard and restore.
+- Unbounded import → size, row and field limits.
+- `Double` money → integer paise, migration 2→3.
+- Release build not minified → R8 on, Apache POI kept for reflection safety.
+- Dead debug screen that stored SMS previews → deleted.
+
+## Delivered
+
+| Step | Commit(s) | Result |
+|------|-----------|--------|
+| Audit | `docs: audit and overhaul plan` | This document |
+| A Build and CI | `build: add spotless, detekt, lint, kover...`, `style: apply ktfmt` | ktfmt, detekt, Lint (abortOnError), Kover, R8, schema export, CI + release workflows |
+| B Domain and architecture | `feat(domain)...`, `refactor: layered architecture...` | ports, use cases, `Money`, `DateRanges`, 723-line view model split into three (largest 144 lines); static `object` utilities (parser config, scanner, notifier, exporters) replaced by injected classes |
+| C Security and privacy | in `refactor`, `test: ...`, `build: keep Apache POI...` | see above |
+| D Features | `refactor`, `test` | editable sender list, lossless round trip, dedupe, new/already-saved scan flags |
+| E Tests | `test: ...` | 143 tests, 79.4% of non-UI lines, 75% gate |
+| F Docs | `docs: ...` | README, ARCHITECTURE, 4 ADRs, SECURITY, PRIVACY, CONTRIBUTING, CHANGELOG, LICENSE |
+
+## Verified
+`spotlessCheck detekt lintDebug testDebugUnitTest koverVerify assembleRelease` all exit 0 with **no detekt baseline**. A mutation spot check (disabling the formula guard and reversing the direction order) makes 14 tests fail. The merged release manifest requests `RECEIVE_SMS`, `READ_SMS` and `POST_NOTIFICATIONS` only.
+
+## Not verified / open items
+- **No device or emulator run.** The receiver, PDF writer, permission prompts and the minified release APK (6.9 MB with POI kept) were exercised through Robolectric and builds only.
+- No screenshots in the README.
+- The license is MIT; the original README said "For personal use only". Change `LICENSE` if you prefer that.
+- GitHub secrets (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`) are needed for signed releases.
+- Default sender ids are common Indian banks; the original author's own bank ids (HASTIB, HASTI, YESBNK, IDFCFB, SBIUPI) are partly kept (IDFCFB, YESBNK, SBIUPI). Add the others in the app.
+- AGP 9 is used with the legacy opt-out flags already in `gradle.properties` (`android.newDsl=false`, `android.builtInKotlin=false`); they are deprecated and will need migration at AGP 10.
 
 ## Status
 - [x] Audit
-- [ ] A Build and CI
-- [ ] B Domain extraction
-- [ ] C Security and privacy
-- [ ] D Feature completion
-- [ ] E Tests
-- [ ] F Docs
+- [x] A Build and CI
+- [x] B Domain extraction
+- [x] C Security and privacy
+- [x] D Feature completion
+- [x] E Tests
+- [x] F Docs

@@ -29,7 +29,12 @@ sealed interface ScanOutcome {
   data class Skipped(val reason: IgnoreReason) : ScanOutcome
 }
 
-/** Reads past messages and parses them, flagging the ones already stored. */
+/**
+ * Reads past messages and parses them, flagging the ones already stored.
+ *
+ * Messages from senders the user has not listed are dropped immediately and never reach the result,
+ * so personal conversations are not shown or kept in memory by the scan.
+ */
 class ScanSmsInbox
 @Inject
 constructor(
@@ -41,19 +46,22 @@ constructor(
   suspend operator fun invoke(range: DateRange): List<ScanItem> {
     val allowed = senders.senders.value
     val parsed =
-      inbox.read(range).map { sms ->
-        val outcome =
-          when (val result = parser.parse(sms.sender, sms.body, allowed)) {
-            is ParseResult.Parsed ->
-              ScanOutcome.Detected(
-                result.transaction,
-                SmsFingerprint.of(sms.body, sms.timestamp),
-                alreadySaved = false,
-              )
-            is ParseResult.Ignored -> ScanOutcome.Skipped(result.reason)
-          }
-        ScanItem(sms, outcome)
-      }
+      inbox
+        .read(range)
+        .filter { parser.isAllowedSender(it.sender, allowed) }
+        .map { sms ->
+          val outcome =
+            when (val result = parser.parse(sms.sender, sms.body, allowed)) {
+              is ParseResult.Parsed ->
+                ScanOutcome.Detected(
+                  result.transaction,
+                  SmsFingerprint.of(sms.body, sms.timestamp),
+                  alreadySaved = false,
+                )
+              is ParseResult.Ignored -> ScanOutcome.Skipped(result.reason)
+            }
+          ScanItem(sms, outcome)
+        }
     val keys = parsed.mapNotNull { (it.outcome as? ScanOutcome.Detected)?.dedupeKey }
     val existing = repository.existingDedupeKeys(keys)
     return parsed.map { item ->
