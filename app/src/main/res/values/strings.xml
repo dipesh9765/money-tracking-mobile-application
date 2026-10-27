@@ -1,45 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Expense Interceptor</string>
-    
+
     <!-- Notification -->
     <string name="notification_channel_name">Expense Alerts</string>
     <string name="notification_channel_description">Notifications for new expense transactions</string>
     <string name="notification_title">New Expense Detected</string>
-    
-    <!-- Quick Add Screen -->
-    <string name="quick_add_title">Add Expense</string>
-    <string name="amount_label">Amount (₹)</string>
-    <string name="merchant_label">Merchant/Description</string>
-    <string name="category_label">Category</string>
-    <string name="title_label">Title (Optional)</string>
-    <string name="save_button">Save</string>
-    <string name="cancel_button">Cancel</string>
-    
-    <!-- Categories -->
-    <string name="category_food">Food</string>
-    <string name="category_travel">Travel</string>
-    <string name="category_bills">Bills</string>
-    <string name="category_shopping">Shopping</string>
-    <string name="category_entertainment">Entertainment</string>
-    <string name="category_health">Health</string>
-    <string name="category_other">Other</string>
-    
-    <!-- Main Screen -->
-    <string name="this_month">This Month</string>
-    <string name="total_spent">Total Spent</string>
-    <string name="no_expenses">No expenses yet</string>
-    <string name="export_csv">Export CSV</string>
-    <string name="csv_exported">CSV exported successfully</string>
-    <string name="import_expenses">Import</string>
-    <string name="import_success">Imported %d transactions</string>
-    <string name="import_partial">Imported %1$d transactions. %2$d rows had errors.</string>
-    <string name="import_failed">Import failed</string>
-    <string name="import_no_file">No file selected</string>
-    
-    <!-- Permissions -->
-    <string name="permission_rationale_sms">SMS permission is required to detect bank transactions automatically.</string>
-    <string name="permission_rationale_notification">Notification permission is required to alert you about new transactions.</string>
-    <string name="grant_permission">Grant Permission</string>
 </resources>
-

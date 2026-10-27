@@ -50,16 +50,16 @@ val ALLOWED_SENDER_PATTERNS = listOf(
 
 ### 2. Customize Parsing (Optional)
 
-The default `AMOUNT_REGEX` handles formats like `Rs.1234.56`, `INR 1,234`, `₹1,234.00`.  
-`MERCHANT_REGEX` extracts "at/to/for MERCHANT" patterns.  
-`detectTransactionType()` treats "credited"/"cr" as CREDIT, otherwise DEBIT.  
+The default `AMOUNT_REGEX` handles formats like `Rs.1234.56`, `INR 1,234`, `₹1,234.00`.
+`MERCHANT_REGEX` extracts "at/to/for MERCHANT" patterns.
+`detectTransactionType()` treats "credited"/"cr" as CREDIT, otherwise DEBIT.
 Adjust these in `SmsParserConfig.kt` if your bank uses different wording.
 
 ---
 
 ## Building the APK
 
-**Android Studio:** Build > Build Bundle(s) / APK(s) > Build APK(s)  
+**Android Studio:** Build > Build Bundle(s) / APK(s) > Build APK(s)
 Output: `app/build/outputs/apk/debug/app-debug.apk`
 
 **Command line:**
