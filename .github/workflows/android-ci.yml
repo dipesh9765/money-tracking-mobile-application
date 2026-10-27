@@ -41,6 +41,16 @@ jobs:
       - name: Build debug and minified release
         run: ./gradlew assembleDebug assembleRelease --no-daemon
 
+      - name: Release APK must not request network access
+        run: |
+          manifest=app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+          if grep -q "android.permission.INTERNET" "$manifest"; then
+            echo "::error::INTERNET permission found in the merged manifest"
+            exit 1
+          fi
+          echo "Declared permissions:"
+          grep -o 'uses-permission android:name="[^"]*"' "$manifest"
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4

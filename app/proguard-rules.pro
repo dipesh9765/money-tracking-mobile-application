@@ -26,3 +26,13 @@
 -dontwarn com.graphbuilder.**
 -dontwarn org.osgi.**
 -dontwarn org.slf4j.**
+
+# Apache POI / XMLBeans load their OOXML schema classes and resources by reflection, so shrinking
+# them can crash Excel import/export only in release builds. Keep them; the size cost is accepted.
+-keep class org.apache.poi.** { *; }
+-keep class org.apache.xmlbeans.** { *; }
+-keep class org.openxmlformats.schemas.** { *; }
+-keep class org.etsi.uri.** { *; }
+-keep class org.w3.x2000.** { *; }
+-keep class com.microsoft.schemas.** { *; }
+-keep class schemaorg_apache_xmlbeans.** { *; }
