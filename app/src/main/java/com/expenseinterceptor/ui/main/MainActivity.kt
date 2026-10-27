@@ -3,6 +3,7 @@ package com.expenseinterceptor.ui.main
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.expenseinterceptor.data.transfer.ExportResult
 import com.expenseinterceptor.ui.theme.ExpenseInterceptorTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -44,7 +46,9 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-  private val viewModel: MainViewModel by viewModels()
+  private val transactions: TransactionsViewModel by viewModels()
+  private val dashboard: DashboardViewModel by viewModels()
+  private val transfer: TransferViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -57,10 +61,10 @@ class MainActivity : ComponentActivity() {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
           if (permissionsGranted) {
             MainScreen(
-              viewModel = viewModel,
-              onShare = { shareIntent ->
-                startActivity(Intent.createChooser(shareIntent, "Share Expenses"))
-              }
+              transactions = transactions,
+              dashboard = dashboard,
+              transfer = transfer,
+              onShare = ::share,
             )
           } else {
             PermissionScreen(onPermissionsGranted = { permissionsGranted = true })
@@ -68,6 +72,25 @@ class MainActivity : ComponentActivity() {
         }
       }
     }
+  }
+
+  private fun share(result: ExportResult) {
+    val intent =
+      Intent(Intent.ACTION_SEND).apply {
+        putExtra(Intent.EXTRA_SUBJECT, result.subject)
+        when (result) {
+          is ExportResult.Text -> {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, result.body)
+          }
+          is ExportResult.File -> {
+            type = result.mimeType
+            putExtra(Intent.EXTRA_STREAM, Uri.parse(result.uri))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+          }
+        }
+      }
+    startActivity(Intent.createChooser(intent, "Share Expenses"))
   }
 
   /** Checks if required permissions are granted. */

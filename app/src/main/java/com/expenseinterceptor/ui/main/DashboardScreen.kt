@@ -1,6 +1,5 @@
 package com.expenseinterceptor.ui.main
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,11 +44,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.expenseinterceptor.ui.quickadd.ExpenseCategory
+import com.expenseinterceptor.domain.model.ExpenseCategory
+import com.expenseinterceptor.domain.model.Money
+import com.expenseinterceptor.domain.usecase.CategoryShare
+import com.expenseinterceptor.domain.usecase.DashboardSortBy
+import com.expenseinterceptor.domain.usecase.DashboardTimeScale
+import com.expenseinterceptor.domain.usecase.TimeBucket
+import com.expenseinterceptor.domain.usecase.TypeFilter
+import com.expenseinterceptor.ui.components.DateButton
 import com.expenseinterceptor.ui.quickadd.getCategoryColor
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
@@ -59,20 +63,11 @@ import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
-private fun formatCurrency(amount: Double): String {
-  val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-  return format.format(amount)
-}
+private fun formatCurrency(amount: Money): String = amount.format()
 
-private fun getCategoryFromString(category: String): ExpenseCategory {
-  return ExpenseCategory.entries.find { it.displayName == category } ?: ExpenseCategory.OTHER
-}
+private fun getCategoryFromString(category: String): ExpenseCategory =
+  ExpenseCategory.fromDisplayName(category)
 
 private fun getCategoryColorByString(category: String): Color {
   return getCategoryColor(getCategoryFromString(category))
@@ -80,50 +75,18 @@ private fun getCategoryColorByString(category: String): Color {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun DashboardContent(
-  viewModel: MainViewModel,
-  startDateMillis: Long,
-  endDateMillis: Long,
-  onStartDateChange: (Long) -> Unit,
-  onEndDateChange: (Long) -> Unit
-) {
-  val expenses by viewModel.dashboardExpenses.collectAsState()
-  val totalAmount by viewModel.dashboardTotalAmount.collectAsState()
-  val categoryBreakdown by viewModel.categoryBreakdown.collectAsState()
-  val timeSeriesData by viewModel.timeSeriesData.collectAsState()
-  val dashboardState by viewModel.dashboardState.collectAsState()
-  val availableBanks by viewModel.availableBanks.collectAsState()
+fun DashboardContent(viewModel: DashboardViewModel) {
+  val model by viewModel.model.collectAsState()
+  val dashboardState by viewModel.state.collectAsState()
+  val range by viewModel.range.collectAsState()
+  val filter = dashboardState.filter
+  val expenses = model.expenses
+  val totalAmount = model.net
+  val categoryBreakdown = model.categoryShares
+  val timeSeriesData = model.timeSeries
+  val availableBanks = model.banks
 
   var chartType by remember { mutableStateOf(0) } // 0=Bar, 1=Line, 2=Pie
-
-  val context = LocalContext.current
-  val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-  val displayEnd = (endDateMillis - 1).coerceAtLeast(startDateMillis)
-
-  fun showDatePicker(current: Long, setToEndOfDay: Boolean, onResult: (Long) -> Unit) {
-    val cal = Calendar.getInstance().apply { time = Date(current) }
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-          val newCal =
-            Calendar.getInstance().apply {
-              set(year, month, day, 0, 0, 0)
-              set(Calendar.MILLISECOND, 0)
-            }
-          val millis =
-            if (setToEndOfDay) {
-              toEndOfDay(newCal.timeInMillis)
-            } else {
-              toStartOfDay(newCal.timeInMillis)
-            }
-          onResult(millis)
-        },
-        cal.get(Calendar.YEAR),
-        cal.get(Calendar.MONTH),
-        cal.get(Calendar.DAY_OF_MONTH)
-      )
-      .show()
-  }
 
   LazyColumn(
     modifier = Modifier.fillMaxSize(),
@@ -165,15 +128,16 @@ fun DashboardContent(
         verticalAlignment = Alignment.CenterVertically
       ) {
         Text("Date range:", style = MaterialTheme.typography.labelLarge)
-        Button(onClick = { showDatePicker(startDateMillis, false, onStartDateChange) }) {
-          Text(
-            dateFormat.format(Date(startDateMillis)),
-            style = MaterialTheme.typography.labelMedium
-          )
-        }
-        Button(onClick = { showDatePicker(displayEnd, true, onEndDateChange) }) {
-          Text(dateFormat.format(Date(displayEnd)), style = MaterialTheme.typography.labelMedium)
-        }
+        DateButton(
+          range.startMillis,
+          viewModel::updateStartDate,
+          MaterialTheme.typography.labelMedium,
+        )
+        DateButton(
+          maxOf(range.startMillis, range.endExclusiveMillis - 1),
+          viewModel::updateEndDate,
+          MaterialTheme.typography.labelMedium,
+        )
       }
     }
 
@@ -182,8 +146,8 @@ fun DashboardContent(
       FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         DashboardTimeScale.entries.forEach { scale ->
           FilterChip(
-            selected = dashboardState.timeScale == scale,
-            onClick = { viewModel.setDashboardTimeScale(scale) },
+            selected = filter.timeScale == scale,
+            onClick = { viewModel.setTimeScale(scale) },
             label = { Text(scale.name.lowercase().replaceFirstChar { it.uppercase() }) }
           )
         }
@@ -194,10 +158,10 @@ fun DashboardContent(
       Text("Filter by category", style = MaterialTheme.typography.titleSmall)
       FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ExpenseCategory.entries.forEach { cat ->
-          val selected = cat.displayName in dashboardState.selectedCategories
+          val selected = cat.displayName in filter.categories
           FilterChip(
             selected = selected,
-            onClick = { viewModel.toggleDashboardCategory(cat.displayName) },
+            onClick = { viewModel.toggleCategory(cat.displayName) },
             label = { Text(cat.displayName) },
             colors =
               FilterChipDefaults.filterChipColors(
@@ -216,7 +180,7 @@ fun DashboardContent(
           val highlighted = cat.displayName in dashboardState.highlightedCategories
           FilterChip(
             selected = highlighted,
-            onClick = { viewModel.toggleDashboardHighlight(cat.displayName) },
+            onClick = { viewModel.toggleHighlight(cat.displayName) },
             label = { Text(cat.displayName) },
             colors =
               FilterChipDefaults.filterChipColors(
@@ -232,10 +196,10 @@ fun DashboardContent(
         Text("Filter by bank", style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           availableBanks.sorted().forEach { bank ->
-            val selected = bank in dashboardState.selectedBanks
+            val selected = bank in filter.banks
             FilterChip(
               selected = selected,
-              onClick = { viewModel.toggleDashboardBank(bank) },
+              onClick = { viewModel.toggleBank(bank) },
               label = { Text(bank) }
             )
           }
@@ -246,20 +210,21 @@ fun DashboardContent(
     item {
       Text("Transaction type", style = MaterialTheme.typography.titleSmall)
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("ALL" to "All", "DEBIT" to "Debit", "CREDIT" to "Credit").forEach { (value, label) ->
-          val selected = dashboardState.transactionTypeFilter.equals(value, ignoreCase = true)
-          FilterChip(
-            selected = selected,
-            onClick = { viewModel.setDashboardTransactionType(value) },
-            label = { Text(label) },
-            colors =
-              FilterChipDefaults.filterChipColors(
-                selectedContainerColor =
-                  if (value == "CREDIT") Color(0xFF2E7D32) else Color(0xFFC62828),
-                selectedLabelColor = Color.White
-              )
-          )
-        }
+        listOf(TypeFilter.ALL to "All", TypeFilter.DEBIT to "Debit", TypeFilter.CREDIT to "Credit")
+          .forEach { (value, label) ->
+            val selected = filter.type == value
+            FilterChip(
+              selected = selected,
+              onClick = { viewModel.setType(value) },
+              label = { Text(label) },
+              colors =
+                FilterChipDefaults.filterChipColors(
+                  selectedContainerColor =
+                    if (value == TypeFilter.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828),
+                  selectedLabelColor = Color.White
+                )
+            )
+          }
       }
     }
 
@@ -268,8 +233,8 @@ fun DashboardContent(
       FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         DashboardSortBy.entries.forEach { sort ->
           FilterChip(
-            selected = dashboardState.sortBy == sort,
-            onClick = { viewModel.setDashboardSortBy(sort) },
+            selected = filter.sortBy == sort,
+            onClick = { viewModel.setSortBy(sort) },
             label = {
               Text(
                 sort.name.lowercase().split("_").joinToString(" ") {
@@ -362,12 +327,12 @@ fun DashboardContent(
 }
 
 @Composable
-private fun TimeSeriesBarChart(timeSeriesData: List<TimeSeriesPoint>) {
+private fun TimeSeriesBarChart(timeSeriesData: List<TimeBucket>) {
   val modelProducer = remember { CartesianChartModelProducer() }
   LaunchedEffect(timeSeriesData) {
     modelProducer.runTransaction {
       if (timeSeriesData.isNotEmpty()) {
-        columnSeries { series(timeSeriesData.map { it.amount.toFloat() }) }
+        columnSeries { series(timeSeriesData.map { it.amount.toDouble().toFloat() }) }
       }
     }
   }
@@ -387,12 +352,12 @@ private fun TimeSeriesBarChart(timeSeriesData: List<TimeSeriesPoint>) {
 }
 
 @Composable
-private fun TimeSeriesLineChart(timeSeriesData: List<TimeSeriesPoint>) {
+private fun TimeSeriesLineChart(timeSeriesData: List<TimeBucket>) {
   val modelProducer = remember { CartesianChartModelProducer() }
   LaunchedEffect(timeSeriesData) {
     modelProducer.runTransaction {
       if (timeSeriesData.isNotEmpty()) {
-        lineSeries { series(timeSeriesData.map { it.amount.toFloat() }) }
+        lineSeries { series(timeSeriesData.map { it.amount.toDouble().toFloat() }) }
       }
     }
   }
@@ -413,7 +378,7 @@ private fun TimeSeriesLineChart(timeSeriesData: List<TimeSeriesPoint>) {
 
 @Composable
 private fun CategoryPieChart(
-  categoryBreakdown: List<CategoryBreakdown>,
+  categoryBreakdown: List<CategoryShare>,
   highlightedCategories: Set<String>
 ) {
   Card(modifier = Modifier.fillMaxWidth().height(260.dp), shape = RoundedCornerShape(12.dp)) {
@@ -424,14 +389,14 @@ private fun CategoryPieChart(
     } else {
       Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
-          val total = categoryBreakdown.sumOf { it.amount }
+          val total = categoryBreakdown.sumOf { it.amount.minor }
           if (total <= 0) return@Canvas
           var startAngle = -90f
           val strokeWidth = size.minDimension / 8f
           val radius = (size.minDimension - strokeWidth) / 2f
           val center = Offset(size.width / 2f, size.height / 2f)
           categoryBreakdown.forEach { item ->
-            val sweep = (item.amount / total * 360f).toFloat()
+            val sweep = (item.amount.minor.toDouble() / total * 360f).toFloat()
             val isHighlighted = item.category in highlightedCategories
             drawArc(
               color =
@@ -472,22 +437,4 @@ private fun CategoryPieChart(
       }
     }
   }
-}
-
-private fun toStartOfDay(millis: Long): Long {
-  val cal = Calendar.getInstance().apply { timeInMillis = millis }
-  cal.set(Calendar.HOUR_OF_DAY, 0)
-  cal.set(Calendar.MINUTE, 0)
-  cal.set(Calendar.SECOND, 0)
-  cal.set(Calendar.MILLISECOND, 0)
-  return cal.timeInMillis
-}
-
-private fun toEndOfDay(millis: Long): Long {
-  val cal = Calendar.getInstance().apply { timeInMillis = millis }
-  cal.set(Calendar.HOUR_OF_DAY, 23)
-  cal.set(Calendar.MINUTE, 59)
-  cal.set(Calendar.SECOND, 59)
-  cal.set(Calendar.MILLISECOND, 999)
-  return cal.timeInMillis + 1
 }

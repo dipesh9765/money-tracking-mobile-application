@@ -107,7 +107,7 @@ class SmsParser @Inject constructor() {
     val parts = sender.trim().split('-').filter { it.isNotBlank() }
     val core =
       when {
-        parts.size >= 3 -> parts[parts.size - 2]
+        parts.size >= PREFIX_ID_SUFFIX -> parts[parts.size - 2]
         parts.size == 2 -> parts[1]
         else -> parts.firstOrNull()
       }
@@ -123,6 +123,8 @@ class SmsParser @Inject constructor() {
     const val UNKNOWN_MERCHANT = "Unknown Merchant"
     const val UNKNOWN_BANK = "Unknown Bank"
 
+    /** Parts in a sender like `CF-HASTIB-S`: operator prefix, bank id, category suffix. */
+    private const val PREFIX_ID_SUFFIX = 3
     private const val LEAD_IN_CHARS = 28
     private const val MIN_MERCHANT_LENGTH = 2
     private const val MAX_MERCHANT_LENGTH = 60

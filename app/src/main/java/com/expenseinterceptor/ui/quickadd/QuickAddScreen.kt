@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.expenseinterceptor.domain.model.ExpenseCategory
 import com.expenseinterceptor.ui.theme.CategoryBills
 import com.expenseinterceptor.ui.theme.CategoryEntertainment
 import com.expenseinterceptor.ui.theme.CategoryFood

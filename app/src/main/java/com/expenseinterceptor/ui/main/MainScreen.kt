@@ -1,6 +1,5 @@
 package com.expenseinterceptor.ui.main
 
-import android.app.DatePickerDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -73,27 +72,31 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.expenseinterceptor.data.local.ExpenseEntity
-import com.expenseinterceptor.ui.quickadd.ExpenseCategory
+import com.expenseinterceptor.data.transfer.ExportFormat
+import com.expenseinterceptor.data.transfer.ExportResult
+import com.expenseinterceptor.domain.model.Expense
+import com.expenseinterceptor.domain.model.ExpenseCategory
+import com.expenseinterceptor.domain.model.Money
+import com.expenseinterceptor.domain.model.TransactionType
+import com.expenseinterceptor.ui.components.DateButton
 import com.expenseinterceptor.ui.quickadd.getCategoryColor
 import com.expenseinterceptor.ui.scan.ScanSmsScreen
 import com.expenseinterceptor.ui.scan.ScanViewModel
+import com.expenseinterceptor.ui.settings.SendersScreen
 import com.expenseinterceptor.ui.theme.Primary
 import com.expenseinterceptor.ui.theme.PrimaryLight
-import java.text.NumberFormat
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 private enum class MainSubScreen {
   HOME,
-  SCAN
+  SCAN,
+  SENDERS
 }
 
 private enum class MainViewMode {
@@ -101,11 +104,8 @@ private enum class MainViewMode {
   DASHBOARD
 }
 
-/** Formats a double as Indian Rupee currency. */
-private fun formatCurrency(amount: Double): String {
-  val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
-  return format.format(amount)
-}
+/** Formats an amount as Indian Rupee currency. */
+private fun formatCurrency(amount: Money): String = amount.format()
 
 /** Formats a timestamp to a readable date string. */
 private fun formatDate(timestamp: Long): String {
@@ -114,22 +114,25 @@ private fun formatDate(timestamp: Long): String {
 }
 
 /** Gets ExpenseCategory enum from string. */
-private fun getCategoryFromString(category: String): ExpenseCategory {
-  return ExpenseCategory.entries.find { it.displayName == category } ?: ExpenseCategory.OTHER
-}
+private fun getCategoryFromString(category: String): ExpenseCategory =
+  ExpenseCategory.fromDisplayName(category)
 
 /** Main screen showing the expense list and summary. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Unit) {
+fun MainScreen(
+  transactions: TransactionsViewModel,
+  dashboard: DashboardViewModel,
+  transfer: TransferViewModel,
+  onShare: (ExportResult) -> Unit,
+) {
   var currentScreen by remember { mutableStateOf(MainSubScreen.HOME) }
   var viewMode by remember { mutableStateOf(MainViewMode.TRANSACTIONS) }
   val scanViewModel: ScanViewModel = hiltViewModel()
 
-  val expenses by viewModel.expenses.collectAsState()
-  val totalAmount by viewModel.totalAmount.collectAsState()
-  val uiState by viewModel.uiState.collectAsState()
-  val editState by viewModel.editState.collectAsState()
+  val state by transactions.state.collectAsState()
+  val editState by transactions.editState.collectAsState()
+  val transferState by transfer.state.collectAsState()
 
   val snackbarHostState = remember { SnackbarHostState() }
   val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -139,51 +142,43 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
 
   val importFileLauncher =
     rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri ->
-      uri?.let { viewModel.importFromUri(it) }
+      uri?.let { transfer.import(it.toString()) }
     }
+
+  LaunchedEffect(transactions) {
+    transactions.events.collect { event ->
+      when (event) {
+        is TransactionsEvent.Message -> snackbarHostState.showSnackbar(event.text)
+        is TransactionsEvent.Deleted -> {
+          val result =
+            snackbarHostState.showSnackbar(
+              message = "Transaction deleted",
+              actionLabel = "Undo",
+              duration = SnackbarDuration.Short,
+            )
+          if (result == SnackbarResult.ActionPerformed) transactions.restore(event.expense)
+        }
+      }
+    }
+  }
+
+  LaunchedEffect(transfer) {
+    transfer.events.collect { event ->
+      when (event) {
+        is TransferEvent.Message -> snackbarHostState.showSnackbar(event.text)
+        is TransferEvent.Share -> onShare(event.result)
+      }
+    }
+  }
 
   when (currentScreen) {
     MainSubScreen.SCAN -> {
       ScanSmsScreen(viewModel = scanViewModel, onClose = { currentScreen = MainSubScreen.HOME })
     }
+    MainSubScreen.SENDERS -> {
+      SendersScreen(onClose = { currentScreen = MainSubScreen.HOME })
+    }
     MainSubScreen.HOME -> {
-      LaunchedEffect(uiState.shareIntent, uiState.shareError, uiState.infoMessage) {
-        uiState.shareIntent?.let {
-          onShare(it)
-          viewModel.consumeShareIntent()
-        }
-        uiState.shareError?.let {
-          snackbarHostState.showSnackbar(it)
-          viewModel.clearShareError()
-        }
-        uiState.infoMessage?.let {
-          snackbarHostState.showSnackbar(it)
-          viewModel.clearInfoMessage()
-        }
-      }
-
-      LaunchedEffect(uiState.deletedForUndo) {
-        uiState.deletedForUndo?.let {
-          val result =
-            snackbarHostState.showSnackbar(
-              message = "Transaction deleted",
-              actionLabel = "Undo",
-              duration = SnackbarDuration.Short
-            )
-          when (result) {
-            SnackbarResult.ActionPerformed -> viewModel.restoreDeletedExpense()
-            SnackbarResult.Dismissed -> viewModel.clearDeletedForUndo()
-          }
-        }
-      }
-
-      LaunchedEffect(uiState.importMessage) {
-        uiState.importMessage?.let { message ->
-          snackbarHostState.showSnackbar(message)
-          viewModel.clearImportMessage()
-        }
-      }
-
       Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -193,12 +188,12 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
                 Text(
                   "Expense Interceptor",
                   style = MaterialTheme.typography.headlineMedium,
-                  fontWeight = FontWeight.Bold
+                  fontWeight = FontWeight.Bold,
                 )
                 Text(
-                  viewModel.getCurrentRangeLabel(),
+                  state.rangeLabel,
                   style = MaterialTheme.typography.bodyMedium,
-                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
               }
             },
@@ -214,21 +209,28 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
                       showOverflow = false
                       importFileLauncher.launch("*/*")
                     },
-                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) }
+                    leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) },
                   )
                   DropdownMenuItem(
                     text = { Text("Scan Old SMS") },
                     onClick = {
                       showOverflow = false
                       currentScreen = MainSubScreen.SCAN
-                    }
+                    },
+                  )
+                  DropdownMenuItem(
+                    text = { Text("Bank senders") },
+                    onClick = {
+                      showOverflow = false
+                      currentScreen = MainSubScreen.SENDERS
+                    },
                   )
                   DropdownMenuItem(
                     text = { Text("Delete all") },
                     onClick = {
                       showOverflow = false
                       showDeleteConfirm = true
-                    }
+                    },
                   )
                 }
               }
@@ -237,23 +239,23 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
               TopAppBarDefaults.largeTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface
               ),
-            scrollBehavior = scrollBehavior
+            scrollBehavior = scrollBehavior,
           )
         },
         floatingActionButton = {
           if (viewMode == MainViewMode.TRANSACTIONS) {
             FloatingActionButton(
               onClick = { showShareOptions = true },
-              containerColor = MaterialTheme.colorScheme.primary
+              containerColor = MaterialTheme.colorScheme.primary,
             ) {
-              if (uiState.isPreparingShare) {
+              if (transferState.isPreparingShare) {
                 CircularProgressIndicator(
                   color = MaterialTheme.colorScheme.onPrimary,
                   strokeWidth = 2.dp,
-                  modifier = Modifier.size(24.dp)
+                  modifier = Modifier.size(24.dp),
                 )
               } else {
-                Icon(imageVector = Icons.Default.Share, contentDescription = "Export Excel")
+                Icon(imageVector = Icons.Default.Share, contentDescription = "Share or export")
               }
             }
           }
@@ -264,48 +266,40 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
               selected = viewMode == MainViewMode.TRANSACTIONS,
               onClick = { viewMode = MainViewMode.TRANSACTIONS },
               icon = { Icon(Icons.Default.List, contentDescription = "Transactions") },
-              label = { Text("Transactions") }
+              label = { Text("Transactions") },
             )
             NavigationBarItem(
               selected = viewMode == MainViewMode.DASHBOARD,
               onClick = { viewMode = MainViewMode.DASHBOARD },
               icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-              label = { Text("Dashboard") }
+              label = { Text("Dashboard") },
             )
           }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
       ) { paddingValues ->
         when (viewMode) {
           MainViewMode.TRANSACTIONS ->
             TransactionsContent(
               modifier = Modifier.padding(paddingValues),
-              expenses = expenses,
-              totalAmount = totalAmount,
-              uiState = uiState,
-              viewModel = viewModel
+              state = state,
+              viewModel = transactions,
             )
           MainViewMode.DASHBOARD ->
             Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-              DashboardContent(
-                viewModel = viewModel,
-                startDateMillis = uiState.startDateMillis,
-                endDateMillis = uiState.endDateMillis,
-                onStartDateChange = viewModel::updateStartDate,
-                onEndDateChange = viewModel::updateEndDate
-              )
+              DashboardContent(viewModel = dashboard)
             }
         }
       }
 
-      editState?.let { state ->
+      editState?.let { edit ->
         ExpenseEditDialog(
-          state = state,
-          onDismiss = { viewModel.dismissEditing() },
-          onCategoryChange = viewModel::updateEditCategory,
-          onBankChange = viewModel::updateEditBank,
-          onTypeChange = viewModel::updateEditTransactionType,
-          onSave = { viewModel.saveEditedExpense() }
+          state = edit,
+          onDismiss = { transactions.dismissEditing() },
+          onCategoryChange = transactions::updateEditCategory,
+          onBankChange = transactions::updateEditBank,
+          onTypeChange = transactions::updateEditType,
+          onSave = { transactions.saveEditedExpense() },
         )
       }
 
@@ -314,8 +308,8 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
           onDismiss = { showShareOptions = false },
           onSelect = { format ->
             showShareOptions = false
-            viewModel.prepareShare(format)
-          }
+            transfer.export(format)
+          },
         )
       }
 
@@ -323,9 +317,9 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
         ConfirmDeleteAllDialog(
           onConfirm = {
             showDeleteConfirm = false
-            viewModel.deleteAllExpenses()
+            transactions.deleteAllExpenses()
           },
-          onDismiss = { showDeleteConfirm = false }
+          onDismiss = { showDeleteConfirm = false },
         )
       }
     }
@@ -336,38 +330,41 @@ fun MainScreen(viewModel: MainViewModel, onShare: (android.content.Intent) -> Un
 @Composable
 private fun TransactionsContent(
   modifier: Modifier = Modifier,
-  expenses: List<ExpenseEntity>,
-  totalAmount: Double,
-  uiState: MainUiState,
-  viewModel: MainViewModel
+  state: TransactionsState,
+  viewModel: TransactionsViewModel,
 ) {
   Column(modifier = modifier.fillMaxSize()) {
     SummaryCard(
-      totalAmount = totalAmount,
-      expenseCount = expenses.size,
-      rangeLabel = uiState.dateRangeLabel,
-      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+      totalAmount = state.summary.spent,
+      expenseCount = state.summary.count,
+      rangeLabel = state.rangeLabel,
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     )
 
-    DateRangeSelector(
-      startDateMillis = uiState.startDateMillis,
-      endDateMillis = uiState.endDateMillis,
-      onStartDateChange = viewModel::updateStartDate,
-      onEndDateChange = viewModel::updateEndDate
-    )
+    Row(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+      horizontalArrangement = Arrangement.spacedBy(12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      DateButton(state.range.startMillis, viewModel::updateStartDate)
+      DateButton(
+        maxOf(state.range.startMillis, state.range.endExclusiveMillis - 1),
+        viewModel::updateEndDate,
+      )
+    }
 
-    if (expenses.isEmpty()) {
+    if (state.expenses.isEmpty()) {
       EmptyState(modifier = Modifier.fillMaxSize().padding(32.dp))
     } else {
       LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        items(items = expenses, key = { it.id }, contentType = { "expense" }) { expense ->
+        items(items = state.expenses, key = { it.id }, contentType = { "expense" }) { expense ->
           ExpenseItem(
             expense = expense,
             onDelete = { viewModel.deleteExpense(expense) },
-            onClick = { viewModel.startEditing(expense) }
+            onClick = { viewModel.startEditing(expense) },
           )
         }
       }
@@ -378,7 +375,7 @@ private fun TransactionsContent(
 /** Summary card showing total amount spent. */
 @Composable
 private fun SummaryCard(
-  totalAmount: Double,
+  totalAmount: Money,
   expenseCount: Int,
   rangeLabel: String,
   modifier: Modifier = Modifier
@@ -427,7 +424,7 @@ private fun SummaryCard(
 /** Individual expense item with swipe to delete. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ExpenseItem(expense: ExpenseEntity, onDelete: () -> Unit, onClick: () -> Unit) {
+private fun ExpenseItem(expense: Expense, onDelete: () -> Unit, onClick: () -> Unit) {
   val dismissState =
     rememberSwipeToDismissBoxState(
       confirmValueChange = { dismissValue ->
@@ -462,10 +459,10 @@ private fun ExpenseItem(expense: ExpenseEntity, onDelete: () -> Unit, onClick: (
 
 /** Content of an expense item card. */
 @Composable
-private fun ExpenseItemContent(expense: ExpenseEntity, onClick: () -> Unit) {
+private fun ExpenseItemContent(expense: Expense, onClick: () -> Unit) {
   val category = getCategoryFromString(expense.category)
   val categoryColor = getCategoryColor(category)
-  val isCredit = expense.transactionType.equals("CREDIT", ignoreCase = true)
+  val isCredit = expense.isCredit
   val amountColor = if (isCredit) Color(0xFF2E7D32) else Color(0xFFC62828)
 
   Card(
@@ -555,7 +552,7 @@ private fun ExpenseItemContent(expense: ExpenseEntity, onClick: () -> Unit) {
               .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
           Text(
-            text = expense.transactionType.uppercase(),
+            text = expense.type.name,
             style = MaterialTheme.typography.labelSmall,
             color = amountColor,
             fontWeight = FontWeight.Bold
@@ -573,7 +570,7 @@ private fun ExpenseEditDialog(
   onDismiss: () -> Unit,
   onCategoryChange: (ExpenseCategory) -> Unit,
   onBankChange: (String) -> Unit,
-  onTypeChange: (String) -> Unit,
+  onTypeChange: (TransactionType) -> Unit,
   onSave: () -> Unit
 ) {
   AlertDialog(
@@ -589,7 +586,7 @@ private fun ExpenseEditDialog(
         Text(
           formatCurrency(state.original.amount),
           style = MaterialTheme.typography.titleLarge,
-          color = if (state.transactionType == "CREDIT") Color(0xFF2E7D32) else Color(0xFFC62828)
+          color = if (state.type == TransactionType.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828)
         )
         Text(
           formatDate(state.original.timestamp),
@@ -637,9 +634,9 @@ private fun ExpenseEditDialog(
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          val types = listOf("DEBIT" to "Debit", "CREDIT" to "Credit")
+          val types = listOf(TransactionType.DEBIT to "Debit", TransactionType.CREDIT to "Credit")
           types.forEach { (value, label) ->
-            val selected = state.transactionType.equals(value, ignoreCase = true)
+            val selected = state.type == value
             FilterChip(
               selected = selected,
               onClick = { onTypeChange(value) },
@@ -647,7 +644,7 @@ private fun ExpenseEditDialog(
               colors =
                 FilterChipDefaults.filterChipColors(
                   selectedContainerColor =
-                    if (value == "CREDIT") Color(0xFF2E7D32) else Color(0xFFC62828),
+                    if (value == TransactionType.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828),
                   selectedLabelColor = Color.White
                 )
             )
@@ -707,66 +704,16 @@ private fun EmptyState(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DateRangeSelector(
-  startDateMillis: Long,
-  endDateMillis: Long,
-  onStartDateChange: (Long) -> Unit,
-  onEndDateChange: (Long) -> Unit
-) {
-  val context = LocalContext.current
-  val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-  val displayEnd = (endDateMillis - 1).coerceAtLeast(startDateMillis)
-
-  fun showDatePicker(current: Long, setToEndOfDay: Boolean, onResult: (Long) -> Unit) {
-    val cal = Calendar.getInstance().apply { time = Date(current) }
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-          val newCal =
-            Calendar.getInstance().apply {
-              set(year, month, day, 0, 0, 0)
-              set(Calendar.MILLISECOND, 0)
-            }
-          val millis =
-            if (setToEndOfDay) {
-              toEndOfDay(newCal.timeInMillis)
-            } else {
-              toStartOfDay(newCal.timeInMillis)
-            }
-          onResult(millis)
-        },
-        cal.get(Calendar.YEAR),
-        cal.get(Calendar.MONTH),
-        cal.get(Calendar.DAY_OF_MONTH)
-      )
-      .show()
-  }
-
-  Row(
-    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
-    verticalAlignment = Alignment.CenterVertically
-  ) {
-    Button(onClick = { showDatePicker(startDateMillis, false, onStartDateChange) }) {
-      Text(dateFormat.format(Date(startDateMillis)))
-    }
-    Button(onClick = { showDatePicker(displayEnd, true, onEndDateChange) }) {
-      Text(dateFormat.format(Date(displayEnd)))
-    }
-  }
-}
-
-@Composable
-private fun ShareOptionsDialog(onDismiss: () -> Unit, onSelect: (ShareFormat) -> Unit) {
+private fun ShareOptionsDialog(onDismiss: () -> Unit, onSelect: (ExportFormat) -> Unit) {
   AlertDialog(
     onDismissRequest = onDismiss,
     title = { Text("Share expenses") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = { onSelect(ShareFormat.TEXT) }) { Text("Formatted text") }
-        Button(onClick = { onSelect(ShareFormat.CSV) }) { Text("CSV file") }
-        Button(onClick = { onSelect(ShareFormat.EXCEL) }) { Text("Excel (.xlsx)") }
-        Button(onClick = { onSelect(ShareFormat.PDF) }) { Text("PDF file") }
+        Button(onClick = { onSelect(ExportFormat.TEXT) }) { Text("Formatted text") }
+        Button(onClick = { onSelect(ExportFormat.CSV) }) { Text("CSV file") }
+        Button(onClick = { onSelect(ExportFormat.EXCEL) }) { Text("Excel (.xlsx)") }
+        Button(onClick = { onSelect(ExportFormat.PDF) }) { Text("PDF file") }
       }
     },
     confirmButton = {},
@@ -789,22 +736,4 @@ private fun ConfirmDeleteAllDialog(onConfirm: () -> Unit, onDismiss: () -> Unit)
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
   )
-}
-
-private fun toStartOfDay(millis: Long): Long {
-  val cal = Calendar.getInstance().apply { timeInMillis = millis }
-  cal.set(Calendar.HOUR_OF_DAY, 0)
-  cal.set(Calendar.MINUTE, 0)
-  cal.set(Calendar.SECOND, 0)
-  cal.set(Calendar.MILLISECOND, 0)
-  return cal.timeInMillis
-}
-
-private fun toEndOfDay(millis: Long): Long {
-  val cal = Calendar.getInstance().apply { timeInMillis = millis }
-  cal.set(Calendar.HOUR_OF_DAY, 23)
-  cal.set(Calendar.MINUTE, 59)
-  cal.set(Calendar.SECOND, 59)
-  cal.set(Calendar.MILLISECOND, 999)
-  return cal.timeInMillis + 1 // exclusive upper bound for Room queries
 }

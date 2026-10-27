@@ -1,6 +1,5 @@
 package com.expenseinterceptor.ui.scan
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,47 +28,21 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.expenseinterceptor.util.SmsScanner
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
+import com.expenseinterceptor.domain.sms.IgnoreReason
+import com.expenseinterceptor.domain.usecase.ScanItem
+import com.expenseinterceptor.domain.usecase.ScanOutcome
+import com.expenseinterceptor.ui.components.DateButton
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
 fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
   val uiState by viewModel.uiState.collectAsState()
-  val context = LocalContext.current
-  val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-
-  fun showDatePicker(current: Long, setToEndOfDay: Boolean, onSet: (Long) -> Unit) {
-    val cal = Calendar.getInstance().apply { time = Date(current) }
-    DatePickerDialog(
-        context,
-        { _, year, month, day ->
-          val newCal =
-            Calendar.getInstance().apply {
-              set(year, month, day, 0, 0, 0)
-              set(Calendar.MILLISECOND, 0)
-              if (setToEndOfDay) {
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-                set(Calendar.SECOND, 59)
-                set(Calendar.MILLISECOND, 999)
-              }
-            }
-          onSet(newCal.timeInMillis)
-        },
-        cal.get(Calendar.YEAR),
-        cal.get(Calendar.MONTH),
-        cal.get(Calendar.DAY_OF_MONTH)
-      )
-      .show()
-  }
-
   Scaffold(
     topBar = {
       Row(
@@ -102,18 +75,8 @@ fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
           )
           Spacer(modifier = Modifier.height(8.dp))
           Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-              onClick = {
-                showDatePicker(uiState.startDateMillis, false, viewModel::updateStartDate)
-              }
-            ) {
-              Text(dateFormat.format(Date(uiState.startDateMillis)))
-            }
-            Button(
-              onClick = { showDatePicker(uiState.endDateMillis, true, viewModel::updateEndDate) }
-            ) {
-              Text(dateFormat.format(Date(uiState.endDateMillis)))
-            }
+            DateButton(uiState.range.startMillis, viewModel::updateStartDate)
+            DateButton(viewModel.lastDayMillis(), viewModel::updateEndDate)
           }
           Spacer(modifier = Modifier.height(12.dp))
           Button(onClick = { viewModel.scan() }, enabled = !uiState.isScanning) {
@@ -149,20 +112,21 @@ fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
           )
         }
       } else {
-        val processedCount = uiState.results.count { it.processed }
+        val processedCount = uiState.detectedCount
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically
         ) {
           Text(
-            text = "$processedCount detected / ${uiState.results.size} scanned",
+            text =
+              "$processedCount detected (${uiState.newCount} new) / ${uiState.results.size} scanned",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold
           )
           Button(
             onClick = { viewModel.saveDetected() },
-            enabled = processedCount > 0 && !uiState.saveInProgress
+            enabled = uiState.newCount > 0 && !uiState.saveInProgress
           ) {
             if (uiState.saveInProgress) {
               CircularProgressIndicator(
@@ -173,7 +137,7 @@ fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
               Icon(Icons.Default.Save, contentDescription = "Save")
               Spacer(modifier = Modifier.width(6.dp))
             }
-            Text("Save detected")
+            Text("Save new")
           }
         }
         uiState.saveResult?.let {
@@ -188,8 +152,10 @@ fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
           modifier = Modifier.weight(1f),
           verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-          items(uiState.results, key = { "${it.timestamp}-${it.sender}-${it.body.hashCode()}" }) {
-            item ->
+          items(
+            uiState.results,
+            key = { "${it.sms.timestamp}-${it.sms.sender}-${it.sms.body.hashCode()}" }
+          ) { item ->
             ScanResultItem(item)
           }
         }
@@ -198,52 +164,58 @@ fun ScanSmsScreen(viewModel: ScanViewModel, onClose: () -> Unit) {
   }
 }
 
+private val SCAN_TIME_FORMAT: DateTimeFormatter =
+  DateTimeFormatter.ofPattern("dd MMM, hh:mm a", Locale.getDefault())
+
 @Composable
-private fun ScanResultItem(item: SmsScanner.ScannedSms) {
-  val dateTimeFormat = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+private fun ScanResultItem(item: ScanItem) {
+  val detected = item.outcome as? ScanOutcome.Detected
   val statusColor =
-    if (item.processed) {
+    if (detected != null && !detected.alreadySaved) {
       MaterialTheme.colorScheme.primary
     } else {
       MaterialTheme.colorScheme.onSurfaceVariant
+    }
+  val status =
+    when (val outcome = item.outcome) {
+      is ScanOutcome.Detected ->
+        "Detected: ${outcome.transaction.amount.format()} at ${outcome.transaction.merchant}" +
+          if (outcome.alreadySaved) " (already saved)" else ""
+      is ScanOutcome.Skipped ->
+        when (outcome.reason) {
+          IgnoreReason.SENDER_NOT_ALLOWED -> "Sender not in your bank list"
+          IgnoreReason.NOT_A_TRANSACTION -> "Not a transaction"
+          IgnoreReason.AMOUNT_NOT_FOUND -> "Amount not found"
+        }
     }
 
   Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
     Column(modifier = Modifier.padding(12.dp)) {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
-          text = item.sender,
+          text = item.sms.sender,
           style = MaterialTheme.typography.titleMedium,
           fontWeight = FontWeight.SemiBold,
           maxLines = 1,
-          overflow = TextOverflow.Ellipsis
+          overflow = TextOverflow.Ellipsis,
         )
         Text(
-          text = dateTimeFormat.format(Date(item.timestamp)),
+          text =
+            SCAN_TIME_FORMAT.format(
+              Instant.ofEpochMilli(item.sms.timestamp).atZone(ZoneId.systemDefault())
+            ),
           style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
       Text(
-        text = item.body,
+        text = item.sms.body,
         style = MaterialTheme.typography.bodyMedium,
         maxLines = 4,
-        overflow = TextOverflow.Ellipsis
+        overflow = TextOverflow.Ellipsis,
       )
       Spacer(modifier = Modifier.height(6.dp))
-      if (item.processed) {
-        Text(
-          text = "Detected: ₹${"%.2f".format(item.amount)} at ${item.merchant}",
-          style = MaterialTheme.typography.bodySmall,
-          color = statusColor
-        )
-      } else {
-        Text(
-          text = item.reason ?: "Skipped",
-          style = MaterialTheme.typography.bodySmall,
-          color = statusColor
-        )
-      }
+      Text(text = status, style = MaterialTheme.typography.bodySmall, color = statusColor)
     }
   }
 }
