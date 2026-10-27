@@ -61,8 +61,13 @@ constructor(
 
   fun scan() {
     if (_uiState.value.isScanning) return
+    _uiState.update { it.copy(saveResult = null) }
+    readInbox()
+  }
+
+  private fun readInbox() {
     val range = _uiState.value.range
-    _uiState.update { it.copy(isScanning = true, scanError = null, saveResult = null) }
+    _uiState.update { it.copy(isScanning = true, scanError = null) }
     viewModelScope.launch {
       try {
         val results = scanInbox(range)
@@ -92,7 +97,7 @@ constructor(
       _uiState.update {
         it.copy(saveInProgress = false, saveResult = "Saved ${saved.saved} expenses$skipped")
       }
-      scan()
+      readInbox()
     }
   }
 

@@ -104,6 +104,6 @@ constructor(private val repository: ExpenseRepository, private val clock: Clock)
   private fun fail(message: String) = _uiState.update { it.copy(errorMessage = message) }
 
   private companion object {
-    val AMOUNT_INPUT = Regex("""^\d{0,12}\.?\d{0,2}$""")
+    val AMOUNT_INPUT = Regex("""^\d{0,12}(\.\d{0,2})?$""")
   }
 }
