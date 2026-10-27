@@ -38,4 +38,3 @@ val CategoryOther = Color(0xFF607D8B)
 val Success = Color(0xFF4CAF50)
 val Warning = Color(0xFFFF9800)
 val Error = Color(0xFFE53935)
-

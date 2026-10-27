@@ -55,214 +55,183 @@ import com.expenseinterceptor.ui.theme.CategoryOther
 import com.expenseinterceptor.ui.theme.CategoryShopping
 import com.expenseinterceptor.ui.theme.CategoryTravel
 
-/**
- * Returns the color associated with each expense category.
- */
+/** Returns the color associated with each expense category. */
 fun getCategoryColor(category: ExpenseCategory): Color {
-    return when (category) {
-        ExpenseCategory.FOOD -> CategoryFood
-        ExpenseCategory.TRAVEL -> CategoryTravel
-        ExpenseCategory.BILLS -> CategoryBills
-        ExpenseCategory.SHOPPING -> CategoryShopping
-        ExpenseCategory.ENTERTAINMENT -> CategoryEntertainment
-        ExpenseCategory.HEALTH -> CategoryHealth
-        ExpenseCategory.OTHER -> CategoryOther
-    }
+  return when (category) {
+    ExpenseCategory.FOOD -> CategoryFood
+    ExpenseCategory.TRAVEL -> CategoryTravel
+    ExpenseCategory.BILLS -> CategoryBills
+    ExpenseCategory.SHOPPING -> CategoryShopping
+    ExpenseCategory.ENTERTAINMENT -> CategoryEntertainment
+    ExpenseCategory.HEALTH -> CategoryHealth
+    ExpenseCategory.OTHER -> CategoryOther
+  }
 }
 
-/**
- * Quick Add expense screen displayed as a dialog overlay.
- */
+/** Quick Add expense screen displayed as a dialog overlay. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun QuickAddScreen(
-    viewModel: QuickAddViewModel,
-    onDismiss: () -> Unit,
-    onSaved: () -> Unit
-) {
-    val uiState by viewModel.uiState.collectAsState()
+fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved: () -> Unit) {
+  val uiState by viewModel.uiState.collectAsState()
 
-    // Handle successful save
-    LaunchedEffect(uiState.isSaved) {
-        if (uiState.isSaved) {
-            onSaved()
-        }
+  // Handle successful save
+  LaunchedEffect(uiState.isSaved) {
+    if (uiState.isSaved) {
+      onSaved()
     }
+  }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { onDismiss() }
-            .imePadding(),
-        contentAlignment = Alignment.Center
+  Box(
+    modifier =
+      Modifier.fillMaxSize()
+        .background(Color.Black.copy(alpha = 0.5f))
+        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+          onDismiss()
+        }
+        .imePadding(),
+    contentAlignment = Alignment.Center
+  ) {
+    Card(
+      modifier =
+        Modifier.fillMaxWidth(0.9f).clickable(
+          interactionSource = remember { MutableInteractionSource() },
+          indication = null
+        ) { /* Prevent dismiss when clicking card */},
+      shape = RoundedCornerShape(24.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { /* Prevent dismiss when clicking card */ },
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+      Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+        // Top App Bar
+        TopAppBar(
+          title = {
+            Text(
+              "Add Expense",
+              style = MaterialTheme.typography.titleLarge,
+              fontWeight = FontWeight.Bold
+            )
+          },
+          navigationIcon = {
+            IconButton(onClick = onDismiss) {
+              Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+            }
+          },
+          colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+        )
+
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp),
+          verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+          // Amount Field
+          OutlinedTextField(
+            value = uiState.amount,
+            onValueChange = viewModel::updateAmount,
+            label = { Text("Amount (₹)") },
+            leadingIcon = { Text("₹", style = MaterialTheme.typography.titleMedium) },
+            keyboardOptions =
+              KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+          )
+
+          // Merchant Field
+          OutlinedTextField(
+            value = uiState.merchant,
+            onValueChange = viewModel::updateMerchant,
+            label = { Text("Merchant / Description") },
+            keyboardOptions =
+              KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+          )
+
+          // Category Selection
+          Column {
+            Text(
+              "Category",
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Top App Bar
-                TopAppBar(
-                    title = {
-                        Text(
-                            "Add Expense",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+              ExpenseCategory.entries.forEach { category ->
+                val isSelected = uiState.category == category
+                val categoryColor = getCategoryColor(category)
+
+                FilterChip(
+                  selected = isSelected,
+                  onClick = { viewModel.updateCategory(category) },
+                  label = { Text(category.displayName) },
+                  leadingIcon =
+                    if (isSelected) {
+                      {
+                        Icon(
+                          imageVector = Icons.Default.Check,
+                          contentDescription = null,
+                          tint = Color.White
                         )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent
+                      }
+                    } else null,
+                  colors =
+                    FilterChipDefaults.filterChipColors(
+                      selectedContainerColor = categoryColor,
+                      selectedLabelColor = Color.White
                     )
                 )
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .padding(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Amount Field
-                    OutlinedTextField(
-                        value = uiState.amount,
-                        onValueChange = viewModel::updateAmount,
-                        label = { Text("Amount (₹)") },
-                        leadingIcon = { Text("₹", style = MaterialTheme.typography.titleMedium) },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal,
-                            imeAction = ImeAction.Next
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    // Merchant Field
-                    OutlinedTextField(
-                        value = uiState.merchant,
-                        onValueChange = viewModel::updateMerchant,
-                        label = { Text("Merchant / Description") },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Next
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    // Category Selection
-                    Column {
-                        Text(
-                            "Category",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ExpenseCategory.entries.forEach { category ->
-                                val isSelected = uiState.category == category
-                                val categoryColor = getCategoryColor(category)
-
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { viewModel.updateCategory(category) },
-                                    label = { Text(category.displayName) },
-                                    leadingIcon = if (isSelected) {
-                                        {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = Color.White
-                                            )
-                                        }
-                                    } else null,
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = categoryColor,
-                                        selectedLabelColor = Color.White
-                                    )
-                                )
-                            }
-                        }
-                    }
-
-                    // Title Field (Optional)
-                    OutlinedTextField(
-                        value = uiState.title,
-                        onValueChange = viewModel::updateTitle,
-                        label = { Text("Title (Optional)") },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Done
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    // Error Message
-                    if (uiState.errorMessage != null) {
-                        Text(
-                            text = uiState.errorMessage!!,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Save Button
-                    Button(
-                        onClick = viewModel::saveExpense,
-                        enabled = !uiState.isSaving,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        if (uiState.isSaving) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                        }
-                        Text(
-                            if (uiState.isSaving) "Saving..." else "Save Expense",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                }
+              }
             }
-        }
-    }
-}
+          }
 
+          // Title Field (Optional)
+          OutlinedTextField(
+            value = uiState.title,
+            onValueChange = viewModel::updateTitle,
+            label = { Text("Title (Optional)") },
+            keyboardOptions =
+              KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+          )
+
+          // Error Message
+          if (uiState.errorMessage != null) {
+            Text(
+              text = uiState.errorMessage!!,
+              color = MaterialTheme.colorScheme.error,
+              style = MaterialTheme.typography.bodySmall
+            )
+          }
+
+          Spacer(modifier = Modifier.height(8.dp))
+
+          // Save Button
+          Button(
+            onClick = viewModel::saveExpense,
+            enabled = !uiState.isSaving,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(12.dp)
+          ) {
+            if (uiState.isSaving) {
+              CircularProgressIndicator(
+                color = MaterialTheme.colorScheme.onPrimary,
+                strokeWidth = 2.dp,
+                modifier = Modifier.padding(end = 8.dp)
+              )
+            }
+            Text(
+              if (uiState.isSaving) "Saving..." else "Save Expense",
+              style = MaterialTheme.typography.titleMedium
+            )
+          }
+        }
+      }
+    }
+  }
+}

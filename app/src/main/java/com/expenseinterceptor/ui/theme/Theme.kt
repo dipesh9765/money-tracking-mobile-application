@@ -11,7 +11,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val LightColorScheme = lightColorScheme(
+private val LightColorScheme =
+  lightColorScheme(
     primary = Primary,
     onPrimary = OnPrimaryLight,
     primaryContainer = PrimaryLight,
@@ -26,9 +27,10 @@ private val LightColorScheme = lightColorScheme(
     onSurface = OnBackgroundLight,
     error = Error,
     onError = OnPrimaryLight
-)
+  )
 
-private val DarkColorScheme = darkColorScheme(
+private val DarkColorScheme =
+  darkColorScheme(
     primary = PrimaryLight,
     onPrimary = PrimaryDark,
     primaryContainer = Primary,
@@ -43,28 +45,23 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = OnBackgroundDark,
     error = Error,
     onError = OnPrimaryLight
-)
+  )
 
 @Composable
 fun ExpenseInterceptorTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+  darkTheme: Boolean = isSystemInDarkTheme(),
+  content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+  val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
-        }
+  val view = LocalView.current
+  if (!view.isInEditMode) {
+    SideEffect {
+      val window = (view.context as Activity).window
+      window.statusBarColor = colorScheme.primary.toArgb()
+      WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
     }
+  }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }
-
