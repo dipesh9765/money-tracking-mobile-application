@@ -4,54 +4,30 @@ import android.content.Context
 import androidx.room.Room
 import com.expenseinterceptor.data.local.ExpenseDao
 import com.expenseinterceptor.data.local.ExpenseDatabase
-import com.expenseinterceptor.data.repository.ExpenseRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.time.Clock
+import java.time.ZoneId
 import javax.inject.Singleton
 
-/**
- * Hilt module providing application-wide dependencies.
- */
+/** Application-wide infrastructure: the database, the clock and the time zone. */
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
 
-    /**
-     * Provides the Room database instance.
-     */
-    @Provides
-    @Singleton
-    fun provideExpenseDatabase(
-        @ApplicationContext context: Context
-    ): ExpenseDatabase {
-        return Room.databaseBuilder(
-            context,
-            ExpenseDatabase::class.java,
-            ExpenseDatabase.DATABASE_NAME
-        )
-            .addMigrations(ExpenseDatabase.MIGRATION_1_2)
-            .build()
-    }
+  @Provides
+  @Singleton
+  fun provideExpenseDatabase(@ApplicationContext context: Context): ExpenseDatabase =
+    Room.databaseBuilder(context, ExpenseDatabase::class.java, ExpenseDatabase.DATABASE_NAME)
+      .addMigrations(ExpenseDatabase.MIGRATION_1_2, ExpenseDatabase.MIGRATION_2_3)
+      .build()
 
-    /**
-     * Provides the ExpenseDao from the database.
-     */
-    @Provides
-    @Singleton
-    fun provideExpenseDao(database: ExpenseDatabase): ExpenseDao {
-        return database.expenseDao()
-    }
+  @Provides fun provideExpenseDao(database: ExpenseDatabase): ExpenseDao = database.expenseDao()
 
-    /**
-     * Provides the ExpenseRepository.
-     */
-    @Provides
-    @Singleton
-    fun provideExpenseRepository(expenseDao: ExpenseDao): ExpenseRepository {
-        return ExpenseRepository(expenseDao)
-    }
+  @Provides fun provideClock(): Clock = Clock.systemUTC()
+
+  @Provides fun provideZone(): ZoneId = ZoneId.systemDefault()
 }
-

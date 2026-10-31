@@ -1,101 +1,77 @@
 package com.expenseinterceptor.data.local
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
-/**
- * Data Access Object for expense operations.
- */
+/** Data access for expenses. */
 @Dao
-interface ExpenseDao {
+abstract class ExpenseDao {
 
-    /**
-     * Inserts a new expense into the database.
-     * If there's a conflict, replaces the existing entry.
-     */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(expense: ExpenseEntity): Long
+  /** Returns the new row id, or -1 if the unique dedupe key already exists. */
+  @Insert(onConflict = OnConflictStrategy.IGNORE)
+  abstract suspend fun insert(expense: ExpenseEntity): Long
 
-    /**
-     * Inserts multiple expenses into the database.
-     * Useful for bulk import.
-     */
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(expenses: List<ExpenseEntity>): List<Long>
+  @Query(
+    """
+    SELECT * FROM expenses
+    WHERE timestamp >= :startMillis AND timestamp < :endExclusiveMillis
+    ORDER BY timestamp DESC, id DESC
+    """
+  )
+  abstract fun observeRange(startMillis: Long, endExclusiveMillis: Long): Flow<List<ExpenseEntity>>
 
-    /**
-     * Gets all expenses ordered by timestamp (newest first).
-     * Returns a Flow for reactive updates.
-     */
-    @Query("SELECT * FROM expenses ORDER BY timestamp DESC")
-    fun getAllExpenses(): Flow<List<ExpenseEntity>>
+  @Query(
+    """
+    SELECT * FROM expenses
+    WHERE timestamp >= :startMillis AND timestamp < :endExclusiveMillis
+    ORDER BY timestamp DESC, id DESC
+    """
+  )
+  abstract suspend fun listRange(startMillis: Long, endExclusiveMillis: Long): List<ExpenseEntity>
 
-    /**
-     * Gets expenses within a specific time range.
-     * Useful for filtering by month.
-     * 
-     * @param startTimestamp Start of the time range (inclusive)
-     * @param endTimestamp End of the time range (exclusive)
-     */
-    @Query("""
-        SELECT * FROM expenses 
-        WHERE timestamp >= :startTimestamp AND timestamp < :endTimestamp 
-        ORDER BY timestamp DESC
-    """)
-    fun getExpensesForRange(startTimestamp: Long, endTimestamp: Long): Flow<List<ExpenseEntity>>
+  @Query("SELECT dedupeKey FROM expenses WHERE dedupeKey IN (:keys)")
+  abstract suspend fun existingKeys(keys: List<String>): List<String>
 
-    /**
-     * Gets all expenses within a time range as a list (not Flow).
-     * Useful for CSV export.
-     */
-    @Query("""
-        SELECT * FROM expenses 
-        WHERE timestamp >= :startTimestamp AND timestamp < :endTimestamp 
-        ORDER BY timestamp DESC
-    """)
-    suspend fun getExpensesForRangeList(startTimestamp: Long, endTimestamp: Long): List<ExpenseEntity>
+  /** How many rows are the same transaction: same second, amount, merchant and direction. */
+  @Query(
+    """
+    SELECT COUNT(*) FROM expenses
+    WHERE timestamp >= :secondStart AND timestamp < :secondStart + 1000
+      AND amountMinor = :amountMinor AND merchant = :merchant AND transactionType = :type
+    """
+  )
+  abstract suspend fun countEquivalent(
+    secondStart: Long,
+    amountMinor: Long,
+    merchant: String,
+    type: String,
+  ): Int
 
-    /**
-     * Gets the total amount of expenses within a time range.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(amount), 0.0) FROM expenses 
-        WHERE timestamp >= :startTimestamp AND timestamp < :endTimestamp
-    """)
-    fun getTotalForRange(startTimestamp: Long, endTimestamp: Long): Flow<Double>
+  @Update abstract suspend fun update(expense: ExpenseEntity)
 
-    /**
-     * Deletes a specific expense by ID.
-     */
-    @Query("DELETE FROM expenses WHERE id = :expenseId")
-    suspend fun deleteById(expenseId: Long)
+  @Query("DELETE FROM expenses WHERE id = :id") abstract suspend fun deleteById(id: Long)
 
-    /**
-     * Deletes all expenses.
-     */
-    @Query("DELETE FROM expenses")
-    suspend fun deleteAll()
+  @Query("DELETE FROM expenses") abstract suspend fun deleteAll()
 
-    /**
-     * Deletes an expense entity.
-     */
-    @Delete
-    suspend fun delete(expense: ExpenseEntity)
+  /** Inserts rows that are not already present, in one transaction. Returns how many were added. */
+  @Transaction
+  open suspend fun insertAllIfAbsent(expenses: List<ExpenseEntity>): Int {
+    var inserted = 0
+    for (expense in expenses) {
+      val secondStart = expense.timestamp - Math.floorMod(expense.timestamp, MILLIS_PER_SECOND)
+      val equivalent =
+        countEquivalent(secondStart, expense.amountMinor, expense.merchant, expense.transactionType)
+      if (equivalent == 0 && insert(expense) != -1L) inserted++
+    }
+    return inserted
+  }
 
-    /**
-     * Gets a single expense by ID.
-     */
-    @Query("SELECT * FROM expenses WHERE id = :expenseId")
-    suspend fun getById(expenseId: Long): ExpenseEntity?
-
-    /**
-     * Updates an expense.
-     */
-    @androidx.room.Update
-    suspend fun update(expense: ExpenseEntity)
+  private companion object {
+    const val MILLIS_PER_SECOND = 1000L
+  }
 }
-

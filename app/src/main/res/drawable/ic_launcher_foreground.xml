@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    
+
     <!-- Dollar/Rupee symbol styled icon -->
     <group android:translateX="27" android:translateY="27">
         <path
@@ -15,4 +15,3 @@
             android:pathData="M30,15H18V19H25.5L18,35H22.5L27,25L31.5,35H36L28.5,19H36V15H30Z"/>
     </group>
 </vector>
-
