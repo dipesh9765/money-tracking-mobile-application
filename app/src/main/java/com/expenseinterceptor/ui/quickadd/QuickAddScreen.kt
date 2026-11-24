@@ -98,7 +98,7 @@ fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved:
           interactionSource = remember { MutableInteractionSource() },
           indication = null
         ) { /* Prevent dismiss when clicking card */},
-      shape = RoundedCornerShape(24.dp),
+      shape = RoundedCornerShape(6.dp),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
       elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
@@ -134,7 +134,7 @@ fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved:
               KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(6.dp)
           )
 
           // Merchant Field
@@ -146,7 +146,7 @@ fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved:
               KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(6.dp)
           )
 
           // Category Selection
@@ -198,7 +198,7 @@ fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved:
               KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(6.dp)
           )
 
           // Error Message
@@ -217,7 +217,7 @@ fun QuickAddScreen(viewModel: QuickAddViewModel, onDismiss: () -> Unit, onSaved:
             onClick = viewModel::saveExpense,
             enabled = !uiState.isSaving,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(6.dp)
           ) {
             if (uiState.isSaving) {
               CircularProgressIndicator(

@@ -56,6 +56,8 @@ import com.expenseinterceptor.domain.usecase.TimeBucket
 import com.expenseinterceptor.domain.usecase.TypeFilter
 import com.expenseinterceptor.ui.components.DateButton
 import com.expenseinterceptor.ui.quickadd.getCategoryColor
+import com.expenseinterceptor.ui.theme.creditColor
+import com.expenseinterceptor.ui.theme.debitColor
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
@@ -96,7 +98,7 @@ fun DashboardContent(viewModel: DashboardViewModel) {
     item {
       Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(6.dp),
         colors =
           CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
       ) {
@@ -220,7 +222,7 @@ fun DashboardContent(viewModel: DashboardViewModel) {
               colors =
                 FilterChipDefaults.filterChipColors(
                   selectedContainerColor =
-                    if (value == TypeFilter.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828),
+                    if (value == TypeFilter.CREDIT) creditColor() else debitColor(),
                   selectedLabelColor = Color.White
                 )
             )
@@ -336,7 +338,7 @@ private fun TimeSeriesBarChart(timeSeriesData: List<TimeBucket>) {
       }
     }
   }
-  Card(modifier = Modifier.fillMaxWidth().height(220.dp), shape = RoundedCornerShape(12.dp)) {
+  Card(modifier = Modifier.fillMaxWidth().height(220.dp), shape = RoundedCornerShape(6.dp)) {
     if (timeSeriesData.isEmpty()) {
       Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("No data for chart", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -361,7 +363,7 @@ private fun TimeSeriesLineChart(timeSeriesData: List<TimeBucket>) {
       }
     }
   }
-  Card(modifier = Modifier.fillMaxWidth().height(220.dp), shape = RoundedCornerShape(12.dp)) {
+  Card(modifier = Modifier.fillMaxWidth().height(220.dp), shape = RoundedCornerShape(6.dp)) {
     if (timeSeriesData.isEmpty()) {
       Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("No data for chart", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -381,7 +383,7 @@ private fun CategoryPieChart(
   categoryBreakdown: List<CategoryShare>,
   highlightedCategories: Set<String>
 ) {
-  Card(modifier = Modifier.fillMaxWidth().height(260.dp), shape = RoundedCornerShape(12.dp)) {
+  Card(modifier = Modifier.fillMaxWidth().height(260.dp), shape = RoundedCornerShape(6.dp)) {
     if (categoryBreakdown.isEmpty()) {
       Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("No data for chart", color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -2,16 +2,18 @@ package com.expenseinterceptor.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Using default sans-serif for simplicity
-// You can replace with custom fonts by adding font files to res/font
+// Titles and the large figures use the system serif (a book face); the rest is the system sans.
+// No font files ship with the app.
 
 val Typography =
   Typography(
     displayLarge =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.Bold,
         fontSize = 57.sp,
         lineHeight = 64.sp,
@@ -19,6 +21,7 @@ val Typography =
       ),
     displayMedium =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.Bold,
         fontSize = 45.sp,
         lineHeight = 52.sp,
@@ -26,6 +29,7 @@ val Typography =
       ),
     displaySmall =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 44.sp,
@@ -33,6 +37,7 @@ val Typography =
       ),
     headlineLarge =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 32.sp,
         lineHeight = 40.sp,
@@ -40,6 +45,7 @@ val Typography =
       ),
     headlineMedium =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
         lineHeight = 36.sp,
@@ -47,6 +53,7 @@ val Typography =
       ),
     headlineSmall =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 32.sp,
@@ -54,6 +61,7 @@ val Typography =
       ),
     titleLarge =
       TextStyle(
+        fontFamily = FontFamily.Serif,
         fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,

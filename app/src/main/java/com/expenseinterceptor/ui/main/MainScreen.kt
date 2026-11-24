@@ -2,6 +2,7 @@ package com.expenseinterceptor.ui.main
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,8 +70,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,8 +86,8 @@ import com.expenseinterceptor.ui.quickadd.getCategoryColor
 import com.expenseinterceptor.ui.scan.ScanSmsScreen
 import com.expenseinterceptor.ui.scan.ScanViewModel
 import com.expenseinterceptor.ui.settings.SendersScreen
-import com.expenseinterceptor.ui.theme.Primary
-import com.expenseinterceptor.ui.theme.PrimaryLight
+import com.expenseinterceptor.ui.theme.creditColor
+import com.expenseinterceptor.ui.theme.debitColor
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -382,39 +381,35 @@ private fun SummaryCard(
 ) {
   Card(
     modifier = modifier,
-    shape = RoundedCornerShape(20.dp),
-    colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    shape = RoundedCornerShape(6.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
   ) {
-    Box(
-      modifier =
-        Modifier.fillMaxWidth()
-          .background(brush = Brush.linearGradient(colors = listOf(Primary, PrimaryLight)))
-          .padding(24.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
       Column {
         Text(
           "Total Spent",
           style = MaterialTheme.typography.titleMedium,
-          color = Color.White.copy(alpha = 0.8f)
+          color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
           formatCurrency(totalAmount),
           style = MaterialTheme.typography.displaySmall,
-          fontWeight = FontWeight.Bold,
-          color = Color.White
+          fontWeight = FontWeight.SemiBold,
+          color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
           "$expenseCount transactions",
           style = MaterialTheme.typography.bodyMedium,
-          color = Color.White.copy(alpha = 0.7f)
+          color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
           text = rangeLabel,
           style = MaterialTheme.typography.bodySmall,
-          color = Color.White.copy(alpha = 0.6f)
+          color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
     }
@@ -445,12 +440,16 @@ private fun ExpenseItem(expense: Expense, onDelete: () -> Unit, onClick: () -> U
       Box(
         modifier =
           Modifier.fillMaxSize()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.error)
             .padding(horizontal = 20.dp),
         contentAlignment = Alignment.CenterEnd
       ) {
-        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+        Icon(
+          imageVector = Icons.Default.Delete,
+          contentDescription = "Delete",
+          tint = MaterialTheme.colorScheme.onError
+        )
       }
     },
     content = { ExpenseItemContent(expense = expense, onClick = onClick) }
@@ -463,10 +462,10 @@ private fun ExpenseItemContent(expense: Expense, onClick: () -> Unit) {
   val category = getCategoryFromString(expense.category)
   val categoryColor = getCategoryColor(category)
   val isCredit = expense.isCredit
-  val amountColor = if (isCredit) Color(0xFF2E7D32) else Color(0xFFC62828)
+  val amountColor = if (isCredit) creditColor() else debitColor()
 
   Card(
-    shape = RoundedCornerShape(16.dp),
+    shape = RoundedCornerShape(6.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     modifier = Modifier.clickable { onClick() }
@@ -533,7 +532,7 @@ private fun ExpenseItemContent(expense: Expense, onClick: () -> Unit) {
         )
         Box(
           modifier =
-            Modifier.clip(RoundedCornerShape(4.dp))
+            Modifier.clip(RoundedCornerShape(3.dp))
               .background(categoryColor.copy(alpha = 0.15f))
               .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
@@ -547,7 +546,7 @@ private fun ExpenseItemContent(expense: Expense, onClick: () -> Unit) {
         Spacer(modifier = Modifier.height(6.dp))
         Box(
           modifier =
-            Modifier.clip(RoundedCornerShape(4.dp))
+            Modifier.clip(RoundedCornerShape(3.dp))
               .background(amountColor.copy(alpha = 0.12f))
               .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
@@ -586,7 +585,7 @@ private fun ExpenseEditDialog(
         Text(
           formatCurrency(state.original.amount),
           style = MaterialTheme.typography.titleLarge,
-          color = if (state.type == TransactionType.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828)
+          color = if (state.type == TransactionType.CREDIT) creditColor() else debitColor()
         )
         Text(
           formatDate(state.original.timestamp),
@@ -613,7 +612,7 @@ private fun ExpenseEditDialog(
               colors =
                 FilterChipDefaults.filterChipColors(
                   selectedContainerColor = color,
-                  selectedLabelColor = Color.White
+                  selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
           }
@@ -625,7 +624,7 @@ private fun ExpenseEditDialog(
           label = { Text("Bank") },
           singleLine = true,
           modifier = Modifier.fillMaxWidth(),
-          shape = RoundedCornerShape(12.dp)
+          shape = RoundedCornerShape(6.dp)
         )
 
         Text(
@@ -644,8 +643,8 @@ private fun ExpenseEditDialog(
               colors =
                 FilterChipDefaults.filterChipColors(
                   selectedContainerColor =
-                    if (value == TransactionType.CREDIT) Color(0xFF2E7D32) else Color(0xFFC62828),
-                  selectedLabelColor = Color.White
+                    if (value == TransactionType.CREDIT) creditColor() else debitColor(),
+                  selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
           }
